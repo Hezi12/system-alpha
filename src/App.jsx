@@ -4304,7 +4304,7 @@ export default function App() {
       
       {showReport && <DetailedReport results={results} strategyConfig={strategyConfig} onClose={() => setShowReport(false)} onTradeClick={handleZoomToTrade} />}
 
-      <div className={`flex flex-col border-l border-zinc-800 bg-black transition-all duration-300 ${config.showSidebar ? 'w-72' : 'w-0'} overflow-hidden relative z-20`}>
+      <div className={`flex flex-col border-l border-zinc-800 bg-black transition-all duration-300 ${config.showSidebar && currentPage === 'MAIN' ? 'w-72' : 'w-0'} overflow-hidden relative z-20`}>
         <div className="h-12 border-b border-zinc-800 flex items-center px-4 justify-between bg-black select-none shrink-0">
           <div className="flex items-center gap-2 cursor-pointer" onClick={() => setCurrentPage('MAIN')}>
             <Activity className="text-blue-500" size={16} />

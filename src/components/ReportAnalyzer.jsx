@@ -19,6 +19,40 @@ const ReportAnalyzer = ({ onBack }) => {
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
+  const parseCurrency = (val) => {
+    if (typeof val === 'number') return val;
+    if (!val) return 0;
+    let str = String(val).replace(/[$,]/g, '');
+    if (str.includes('(') && str.includes(')')) {
+      str = '-' + str.replace(/[()]/g, '');
+    }
+    return parseFloat(str) || 0;
+  };
+
+  const excelDateToJS = (serial) => {
+    if (typeof serial !== 'number') return String(serial);
+    const utc_days  = Math.floor(serial - 25569);
+    const utc_value = utc_days * 86400;
+    const date_info = new Date(utc_value * 1000);
+
+    const fractional_day = serial - Math.floor(serial) + 0.0000001;
+    let total_seconds = Math.floor(86400 * fractional_day);
+
+    const seconds = total_seconds % 60;
+    total_seconds -= seconds;
+
+    const hours = Math.floor(total_seconds / (60 * 60));
+    const minutes = Math.floor(total_seconds / 60) % 60;
+
+    return new Date(date_info.getFullYear(), date_info.getMonth(), date_info.getDate(), hours, minutes, seconds).toLocaleString('he-IL', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -28,12 +62,28 @@ const ReportAnalyzer = ({ onBack }) => {
     reader.onload = (evt) => {
       try {
         const bstr = evt.target.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wb = XLSX.read(bstr, { type: 'binary', cellDates: false });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
-        const jsonData = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        const rawJson = XLSX.utils.sheet_to_json(ws, { defval: "" });
         
-        setData(jsonData);
+        // נרמול הנתונים לפי התמונה של המשתמש
+        const normalizedData = rawJson.map(row => {
+          const entryTime = row['Entry time'] || row['Entry Time'] || "";
+          const exitTime = row['Exit time'] || row['Exit Time'] || "";
+          const profit = parseCurrency(row['Profit'] || 0);
+          
+          return {
+            ...row,
+            'Entry time': typeof entryTime === 'number' ? excelDateToJS(entryTime) : entryTime,
+            'Exit time': typeof exitTime === 'number' ? excelDateToJS(exitTime) : exitTime,
+            'Profit': profit,
+            'Market pos.': row['Market pos.'] || row['Market Pos.'] || "",
+            'Cumulative': parseCurrency(row['Cum. net profit'] || row['Cumulative Profit'] || 0)
+          };
+        });
+
+        setData(normalizedData);
       } catch (error) {
         console.error("Error reading file:", error);
         alert("שגיאה בקריאת הקובץ. וודא שזהו קובץ Excel או CSV תקין.");
@@ -48,36 +98,36 @@ const ReportAnalyzer = ({ onBack }) => {
     if (!data || data.length === 0) return null;
 
     let totalNetProfit = 0;
-    let totalTrades = 0;
     let winningTrades = 0;
-    let totalMaxDD = 0;
-    let profitFactorSum = 0;
-    let count = 0;
+    let totalTrades = data.length;
+    let grossProfit = 0;
+    let grossLoss = 0;
+    let maxDD = 0;
+    let peak = 0;
+    let currentEquity = 0;
 
     data.forEach(row => {
-      // NinjaTrader Grid column names can vary, we try common ones
-      const netProfit = parseFloat(row['Net profit'] || row['Net Profit'] || 0);
-      const trades = parseInt(row['Total trades'] || row['Total Trades'] || 0);
-      const winPct = parseFloat(String(row['Percent profitable'] || row['Win %'] || "0").replace('%', ''));
-      const pf = parseFloat(row['Profit factor'] || row['Profit Factor'] || 0);
-      const dd = parseFloat(row['Max. drawdown'] || row['Max DD'] || 0);
-
-      if (!isNaN(netProfit)) totalNetProfit += netProfit;
-      if (!isNaN(trades)) totalTrades += trades;
-      if (!isNaN(winPct)) winningTrades += (trades * winPct / 100);
-      if (!isNaN(dd)) totalMaxDD = Math.min(totalMaxDD, dd); // DD is usually negative in reports
-      if (!isNaN(pf) && pf > 0) {
-        profitFactorSum += pf;
-        count++;
+      const p = row['Profit'];
+      totalNetProfit += p;
+      if (p > 0) {
+        winningTrades++;
+        grossProfit += p;
+      } else {
+        grossLoss += Math.abs(p);
       }
+
+      currentEquity += p;
+      if (currentEquity > peak) peak = currentEquity;
+      const dd = peak - currentEquity;
+      if (dd > maxDD) maxDD = dd;
     });
 
     return {
       netProfit: totalNetProfit,
       trades: totalTrades,
-      winRate: totalTrades > 0 ? (winningTrades / totalTrades * 100) : 0,
-      profitFactor: count > 0 ? (profitFactorSum / count) : 0,
-      maxDD: totalMaxDD,
+      winRate: (winningTrades / totalTrades * 100),
+      profitFactor: grossLoss > 0 ? (grossProfit / grossLoss) : (grossProfit > 0 ? 100 : 0),
+      maxDD: maxDD,
       rowCount: data.length
     };
   }, [data]);
@@ -214,29 +264,44 @@ const ReportAnalyzer = ({ onBack }) => {
                 <table className="w-full text-right text-[11px] border-collapse">
                   <thead>
                     <tr className="bg-zinc-900/20 text-zinc-500 uppercase tracking-wider font-bold border-b border-zinc-900">
-                      {Object.keys(data[0]).map((key, i) => (
-                        <th key={i} className="px-4 py-3 font-semibold">{key}</th>
-                      ))}
+                      <th className="px-4 py-3 font-semibold">Trade #</th>
+                      <th className="px-4 py-3 font-semibold">Strategy</th>
+                      <th className="px-4 py-3 font-semibold text-center">Pos</th>
+                      <th className="px-4 py-3 font-semibold">Entry Time</th>
+                      <th className="px-4 py-3 font-semibold">Exit Time</th>
+                      <th className="px-4 py-3 font-semibold">Entry Price</th>
+                      <th className="px-4 py-3 font-semibold">Exit Price</th>
+                      <th className="px-4 py-3 font-semibold text-left">Profit</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredData.slice(0, 100).map((row, i) => (
-                      <tr key={i} className="border-b border-zinc-900/50 hover:bg-blue-500/5 transition-colors group">
-                        {Object.values(row).map((val, j) => {
-                          const isProfit = String(val).startsWith('$') || !isNaN(parseFloat(val)) && j === 1; // Simplistic check
-                          return (
-                            <td key={j} className={`px-4 py-2.5 font-mono ${typeof val === 'number' ? 'text-zinc-300' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
-                              {val}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
+                    {filteredData.slice(0, 500).map((row, i) => {
+                      const p = row['Profit'];
+                      const isLong = (row['Market pos.'] || "").toLowerCase().includes('long');
+                      return (
+                        <tr key={i} className="border-b border-zinc-900/50 hover:bg-blue-500/5 transition-colors group">
+                          <td className="px-4 py-2.5 font-mono text-zinc-500">{row['Trade number'] || i + 1}</td>
+                          <td className="px-4 py-2.5 font-medium text-zinc-300">{row['Strategy']}</td>
+                          <td className="px-4 py-2.5 text-center">
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${isLong ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                              {row['Market pos.']}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 font-mono text-zinc-400">{row['Entry time']}</td>
+                          <td className="px-4 py-2.5 font-mono text-zinc-400">{row['Exit time']}</td>
+                          <td className="px-4 py-2.5 font-mono text-zinc-300">{row['Entry price']}</td>
+                          <td className="px-4 py-2.5 font-mono text-zinc-300">{row['Exit price']}</td>
+                          <td className={`px-4 py-2.5 font-mono font-bold text-left ${p >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                            {p >= 0 ? `$${p.toLocaleString()}` : `-$${Math.abs(p).toLocaleString()}`}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
-                {filteredData.length > 100 && (
+                {filteredData.length > 500 && (
                   <div className="p-4 text-center text-zinc-600 text-[10px] uppercase tracking-widest border-t border-zinc-900">
-                    Showing first 100 results out of {filteredData.length}
+                    Showing first 500 results out of {filteredData.length}
                   </div>
                 )}
               </div>
