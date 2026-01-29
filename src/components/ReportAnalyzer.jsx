@@ -257,15 +257,9 @@ const PortfolioAnalyzer = ({ onBack }) => {
 
       <div className="flex-1 overflow-y-auto p-8 space-y-8">
         {strategies.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center space-y-6">
-            <div className="w-24 h-24 rounded-full bg-zinc-900/50 border border-zinc-800 flex items-center justify-center">
+          <div className="h-full flex flex-col items-center justify-center">
+            <div className="w-24 h-24 rounded-full bg-zinc-900/50 border border-zinc-800 flex items-center justify-center opacity-30">
               <Layers size={40} className="text-zinc-700" />
-            </div>
-            <div className="text-center space-y-2">
-              <h3 className="text-zinc-300 font-medium">המערכת מוכנה לניתוח התיק שלך</h3>
-              <p className="text-zinc-500 text-xs max-w-xs leading-relaxed">
-                העלה מספר קבצי CSV של NinjaTrader כדי לראות איך האסטרטגיות שלך עובדות יחד, מה ה-Drawdown המשולב ואיך הן מחפות אחת על השנייה.
-              </p>
             </div>
           </div>
         ) : (
@@ -277,7 +271,6 @@ const PortfolioAnalyzer = ({ onBack }) => {
                   <Activity size={12} className="text-purple-500" />
                   Strategy Exposure & Weighting
                 </h3>
-                <span className="text-[10px] text-zinc-600 font-mono italic">Adjust multipliers to see portfolio impact</span>
               </div>
               
               <div className="flex flex-wrap gap-3">

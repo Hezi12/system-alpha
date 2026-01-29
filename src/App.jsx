@@ -5208,11 +5208,10 @@ export default function App() {
                )}
                
                {!isDataLoaded && !loading && (
-                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-20">
-                   <div className="w-12 h-12 bg-zinc-900 rounded-full flex items-center justify-center mb-3 border border-zinc-800">
+                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-20 opacity-20">
+                   <div className="w-12 h-12 bg-zinc-900 rounded-full flex items-center justify-center border border-zinc-800">
                       <BarChart2 className="text-zinc-700" size={24} />
                    </div>
-                   <p className="text-xs text-zinc-700 uppercase tracking-widest font-bold">No Data Loaded</p>
                  </div>
                )}
 
