@@ -534,7 +534,7 @@ const PortfolioAnalyzer = ({ onBack }) => {
                       <thead>
                         <tr className="text-zinc-500 uppercase font-bold bg-zinc-900/20">
                           <th className="px-6 py-4 text-left border-b border-zinc-900">Year</th>
-                          {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map(m => (
+                          {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map(m => (
                             <th key={m} className="px-4 py-4 border-b border-zinc-900">{m}</th>
                           ))}
                           <th className="px-6 py-4 border-b border-zinc-900 bg-zinc-900/40">Total</th>
