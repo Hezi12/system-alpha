@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Upload, FileText, ChevronLeft, BarChart2, TrendingUp, ArrowUp, ArrowDown, Activity, Download, Search, Filter, X, Table, Plus, PieChart, Layers, Trash2, Layout } from 'lucide-react';
+import { Upload, FileText, ChevronLeft, BarChart2, TrendingUp, ArrowUp, ArrowDown, Activity, Download, Search, Filter, X, Table, Plus, PieChart, Layers, Trash2, Layout, Check } from 'lucide-react';
 
 const COLORS = {
   bg: '#000000',
@@ -11,7 +11,7 @@ const COLORS = {
   green: '#22c55e',
   red: '#ef4444',
   amber: '#f59e0b',
-  chart: ['#3b82f6', '#a855f7', '#ec4899', '#f97316', '#10b981', '#06b6d4']
+  chart: ['#3b82f6', '#64748b', '#0ea5e9', '#f59e0b', '#10b981', '#6366f1']
 };
 
 const PortfolioAnalyzer = ({ onBack }) => {
@@ -216,10 +216,10 @@ const PortfolioAnalyzer = ({ onBack }) => {
             <ChevronLeft size={20} />
           </button>
           <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-purple-500/10 rounded-lg">
-              <Layers className="text-purple-500" size={18} />
+            <div className="p-1.5 bg-blue-500/10 rounded-lg">
+              <Layers className="text-blue-500" size={18} />
             </div>
-            <h2 className="text-sm font-bold tracking-tight text-zinc-100 uppercase">Portfolio <span className="text-purple-500">Strategy Manager</span></h2>
+            <h2 className="text-sm font-bold tracking-tight text-zinc-100 uppercase">Portfolio <span className="text-blue-500">Strategy Manager</span></h2>
           </div>
         </div>
 
@@ -247,7 +247,7 @@ const PortfolioAnalyzer = ({ onBack }) => {
               onChange={handleFileUpload} 
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
             />
-            <button className="flex items-center gap-2 px-4 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold rounded-full transition-all shadow-lg shadow-purple-900/20">
+            <button className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold rounded-full transition-all shadow-lg shadow-blue-900/20">
               <Plus size={14} />
               Add Strategies
             </button>
@@ -268,36 +268,36 @@ const PortfolioAnalyzer = ({ onBack }) => {
             <div className="bg-zinc-950/50 border border-zinc-900 rounded-2xl p-6 space-y-4 shadow-xl">
               <div className="flex items-center justify-between border-b border-zinc-900 pb-4">
                 <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                  <Activity size={12} className="text-purple-500" />
+                  <Activity size={12} className="text-blue-500" />
                   Strategy Exposure & Weighting
                 </h3>
               </div>
               
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap gap-2">
                 {strategies.map((s, i) => (
                   <div 
                     key={s.id} 
-                    className={`flex items-center gap-3 p-2 pl-3 rounded-xl border transition-all duration-300 ${s.active ? 'bg-zinc-900/50 border-zinc-800' : 'bg-black border-zinc-900 opacity-40'}`}
+                    className={`flex items-center gap-3 p-1.5 pl-2.5 rounded-lg border transition-all duration-200 ${s.active ? 'bg-zinc-900/40 border-zinc-800' : 'bg-black border-zinc-900/50 opacity-40'}`}
                   >
                     <button 
                       onClick={() => toggleStrategy(s.id)}
-                      className={`w-5 h-5 rounded-md flex items-center justify-center transition-all ${s.active ? 'bg-purple-600 text-white' : 'bg-zinc-800 text-zinc-600'}`}
+                      className={`w-4 h-4 rounded border transition-all flex items-center justify-center ${s.active ? 'bg-blue-600 border-blue-500 text-white' : 'bg-transparent border-zinc-700 text-transparent'}`}
                     >
-                      {s.active && <X size={12} className="rotate-45" />}
+                      <Check size={10} strokeWidth={4} />
                     </button>
                     
-                    <span className={`text-[11px] font-bold tracking-tight ${s.active ? 'text-zinc-200' : 'text-zinc-600'}`}>
+                    <span className={`text-[10px] font-medium tracking-wide ${s.active ? 'text-zinc-200' : 'text-zinc-600'}`}>
                       {s.name}
                     </span>
 
-                    <div className="flex items-center bg-black border border-zinc-800 rounded-lg overflow-hidden h-7">
+                    <div className="flex items-center bg-zinc-950 border border-zinc-800 rounded-md overflow-hidden h-6 ml-1">
                       <input 
                         type="number"
                         min="0"
                         step="1"
                         value={s.multiplier}
                         onChange={(e) => updateMultiplier(s.id, e.target.value)}
-                        className="w-10 bg-transparent text-center text-[11px] font-mono text-purple-400 outline-none"
+                        className="w-8 bg-transparent text-center text-[10px] font-mono text-zinc-400 outline-none hover:text-white focus:text-blue-400 transition-colors"
                       />
                     </div>
                   </div>
@@ -320,7 +320,7 @@ const PortfolioAnalyzer = ({ onBack }) => {
                     label="Portfolio PF" 
                     value={portfolioStats.profitFactor.toFixed(2)}
                     icon={<Activity size={16} />}
-                    color="text-purple-400"
+                    color="text-blue-400"
                     subValue="Overall risk/reward"
                   />
                   <StatCard 
@@ -341,7 +341,7 @@ const PortfolioAnalyzer = ({ onBack }) => {
                     label="Active Strategies" 
                     value={portfolioStats.strategyCount}
                     icon={<Layers size={16} />}
-                    color="text-purple-500"
+                    color="text-blue-500"
                     subValue={`${strategies.length} total loaded`}
                   />
                 </div>
@@ -350,7 +350,7 @@ const PortfolioAnalyzer = ({ onBack }) => {
                 <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 space-y-6">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-1 h-4 bg-purple-500 rounded-full"></div>
+                      <div className="w-1 h-4 bg-blue-500 rounded-full"></div>
                       <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400">Combined Equity Curve</h3>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 max-w-[60%]">
@@ -394,7 +394,7 @@ const PortfolioAnalyzer = ({ onBack }) => {
                             <div className="w-2 h-2 rounded-full" style={{backgroundColor: COLORS.chart[i % COLORS.chart.length]}}></div>
                             <span className={`font-bold ${s.active ? 'text-zinc-200' : 'text-zinc-600'}`}>{s.name}</span>
                           </td>
-                          <td className="px-6 py-4 text-center font-mono text-purple-400">x{s.multiplier}</td>
+                          <td className="px-6 py-4 text-center font-mono text-blue-400">x{s.multiplier}</td>
                           <td className={`px-6 py-4 font-mono ${s.stats.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                             ${s.stats.netProfit.toLocaleString()}
                           </td>
@@ -420,7 +420,7 @@ const PortfolioAnalyzer = ({ onBack }) => {
                     </button>
                     
                     <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all ${s.active ? 'bg-zinc-900 border-zinc-800 text-purple-500' : 'bg-black border-zinc-900 text-zinc-700'}`}>
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all ${s.active ? 'bg-zinc-900 border-zinc-800 text-blue-500' : 'bg-black border-zinc-900 text-zinc-700'}`}>
                         <Activity size={20} />
                       </div>
                       <div>
