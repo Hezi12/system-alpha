@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Upload, FileText, ChevronLeft, BarChart2, TrendingUp, ArrowUp, ArrowDown, Activity, Download, Search, Filter, X, Table, Plus, PieChart, Layers, Trash2, Layout, Check } from 'lucide-react';
+import { Upload, FileText, ChevronLeft, BarChart2, TrendingUp, ArrowUp, ArrowDown, Activity, Download, Search, Filter, X, Table, Plus, PieChart, Layers, Trash2, Layout, Check, ChevronDown, Calendar } from 'lucide-react';
 
 const COLORS = {
   bg: '#000000',
@@ -18,6 +18,7 @@ const PortfolioAnalyzer = ({ onBack }) => {
   const [strategies, setStrategies] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('PORTFOLIO'); // 'PORTFOLIO' or 'INDIVIDUAL'
+  const [isCalendarOpen, setIsCalendarOpen] = useState(true);
 
   const parseCurrency = (val) => {
     if (typeof val === 'number') return val;
@@ -230,6 +231,29 @@ const PortfolioAnalyzer = ({ onBack }) => {
       equityCurve,
       strategyCount: activeStrats.length
     };
+  }, [individualStats]);
+
+  const monthlyPerformance = useMemo(() => {
+    if (strategies.length === 0) return {};
+    const activeStrats = individualStats.filter(s => s.active);
+    const allTrades = activeStrats.flatMap(s => 
+      s.trades.map(t => ({ ...t, adjustedProfit: t.profit * s.multiplier }))
+    );
+
+    const perf = {};
+    allTrades.forEach(t => {
+      const d = new Date(t.exitTime);
+      const year = d.getFullYear();
+      const month = d.getMonth();
+
+      if (!perf[year]) perf[year] = {};
+      if (!perf[year][month]) perf[year][month] = { profit: 0, trades: 0 };
+
+      perf[year][month].profit += t.adjustedProfit;
+      perf[year][month].trades += 1;
+    });
+
+    return perf;
   }, [individualStats]);
 
   const removeStrategy = (id) => {
@@ -452,6 +476,66 @@ const PortfolioAnalyzer = ({ onBack }) => {
                       ))}
                     </tbody>
                   </table>
+                </div>
+
+                {/* Monthly Performance Calendar */}
+                <div className="bg-zinc-950 border border-zinc-900 rounded-2xl overflow-hidden shadow-2xl transition-all duration-300">
+                  <button 
+                    onClick={() => setIsCalendarOpen(!isCalendarOpen)}
+                    className="w-full px-6 py-4 flex items-center justify-between hover:bg-zinc-900/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Calendar size={18} className="text-blue-500" />
+                      <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-100">Monthly Performance Calendar</h3>
+                    </div>
+                    <ChevronDown size={18} className={`text-zinc-500 transition-transform duration-300 ${isCalendarOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  <div className={`overflow-x-auto transition-all duration-300 ${isCalendarOpen ? 'max-h-[1000px] border-t border-zinc-900' : 'max-h-0'}`}>
+                    <table className="w-full text-right text-[11px] border-collapse">
+                      <thead>
+                        <tr className="text-zinc-500 uppercase font-bold bg-zinc-900/20">
+                          <th className="px-6 py-4 text-left border-b border-zinc-900">Year</th>
+                          {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map(m => (
+                            <th key={m} className="px-4 py-4 border-b border-zinc-900">{m}</th>
+                          ))}
+                          <th className="px-6 py-4 border-b border-zinc-900 bg-zinc-900/40">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.keys(monthlyPerformance).sort((a, b) => b - a).map(year => {
+                          const months = monthlyPerformance[year];
+                          let yearTotal = 0;
+                          return (
+                            <tr key={year} className="border-b border-zinc-900/50 hover:bg-zinc-900/30 transition-colors">
+                              <td className="px-6 py-4 font-bold text-zinc-100 bg-zinc-900/10 text-left">{year}</td>
+                              {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(m => {
+                                const data = months[m];
+                                if (data) yearTotal += data.profit;
+                                return (
+                                  <td key={m} className="px-4 py-4">
+                                    {data ? (
+                                      <div className="space-y-0.5">
+                                        <div className={`font-mono font-bold ${data.profit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                          ${data.profit.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                        </div>
+                                        <div className="text-[9px] text-zinc-600 font-mono">({data.trades})</div>
+                                      </div>
+                                    ) : (
+                                      <span className="text-zinc-800">—</span>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                              <td className={`px-6 py-4 font-mono font-bold bg-zinc-900/40 ${yearTotal >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                ${yearTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </>
             ) : (
