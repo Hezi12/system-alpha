@@ -31,7 +31,6 @@ const PortfolioAnalyzer = ({ onBack }) => {
 
   const parseDate = (dateStr) => {
     if (!dateStr) return 0;
-    // NinjaTrader CSV format: M/D/YYYY H:MM:SS AM/PM
     const date = new Date(dateStr);
     return date.getTime();
   };
@@ -92,43 +91,15 @@ const PortfolioAnalyzer = ({ onBack }) => {
         });
       }
 
-      // Sort trades by exit time
       trades.sort((a, b) => a.exitTime - b.exitTime);
-
-      // Calculate Stats
-      let cumProfit = 0;
-      let grossProfit = 0;
-      let grossLoss = 0;
-      let peak = 0;
-      let maxDD = 0;
-      let wins = 0;
-      const equityCurve = trades.map(t => {
-        cumProfit += t.profit;
-        if (t.profit > 0) {
-          wins++;
-          grossProfit += t.profit;
-        } else {
-          grossLoss += Math.abs(t.profit);
-        }
-        if (cumProfit > peak) peak = cumProfit;
-        const dd = peak - cumProfit;
-        if (dd > maxDD) maxDD = dd;
-        return { time: t.exitTime, value: cumProfit };
-      });
 
       newStrategies.push({
         id: Math.random().toString(36).substr(2, 9),
         name: trades[0]?.strategy || file.name.replace('.csv', ''),
         fileName: file.name,
         trades,
-        stats: {
-          netProfit: cumProfit,
-          trades: trades.length,
-          winRate: trades.length > 0 ? (wins / trades.length * 100) : 0,
-          profitFactor: grossLoss > 0 ? (grossProfit / grossLoss) : (grossProfit > 0 ? 100 : 0),
-          maxDD
-        },
-        equityCurve
+        active: true,
+        multiplier: 1
       });
     }
 
@@ -136,11 +107,66 @@ const PortfolioAnalyzer = ({ onBack }) => {
     setLoading(false);
   };
 
+  const toggleStrategy = (id) => {
+    setStrategies(prev => prev.map(s => 
+      s.id === id ? { ...s, active: !s.active } : s
+    ));
+  };
+
+  const updateMultiplier = (id, val) => {
+    const num = parseFloat(val) || 0;
+    setStrategies(prev => prev.map(s => 
+      s.id === id ? { ...s, multiplier: Math.max(0, num) } : s
+    ));
+  };
+
+  const individualStats = useMemo(() => {
+    return strategies.map(s => {
+      let cumProfit = 0;
+      let grossProfit = 0;
+      let grossLoss = 0;
+      let peak = 0;
+      let maxDD = 0;
+      let wins = 0;
+      
+      const curve = s.trades.map(t => {
+        const p = t.profit * s.multiplier;
+        cumProfit += p;
+        if (p > 0) {
+          wins++;
+          grossProfit += p;
+        } else {
+          grossLoss += Math.abs(p);
+        }
+        if (cumProfit > peak) peak = cumProfit;
+        const dd = peak - cumProfit;
+        if (dd > maxDD) maxDD = dd;
+        return { time: t.exitTime, value: cumProfit };
+      });
+
+      return {
+        ...s,
+        stats: {
+          netProfit: cumProfit,
+          trades: s.trades.length,
+          winRate: s.trades.length > 0 ? (wins / s.trades.length * 100) : 0,
+          profitFactor: grossLoss > 0 ? (grossProfit / grossLoss) : (grossProfit > 0 ? 100 : 0),
+          maxDD
+        },
+        equityCurve: curve
+      };
+    });
+  }, [strategies]);
+
   const portfolioStats = useMemo(() => {
     if (strategies.length === 0) return null;
 
-    // Combine all trades and sort by time
-    const allTrades = strategies.flatMap(s => s.trades).sort((a, b) => a.exitTime - b.exitTime);
+    const activeStrats = individualStats.filter(s => s.active);
+    if (activeStrats.length === 0) return { netProfit: 0, totalTrades: 0, winRate: 0, profitFactor: 0, maxDD: 0, equityCurve: [], strategyCount: 0 };
+
+    const allTrades = activeStrats.flatMap(s => 
+      s.trades.map(t => ({ ...t, adjustedProfit: t.profit * s.multiplier }))
+    ).sort((a, b) => a.exitTime - b.exitTime);
     
     let cumProfit = 0;
     let peak = 0;
@@ -150,12 +176,12 @@ const PortfolioAnalyzer = ({ onBack }) => {
     let grossLoss = 0;
 
     const equityCurve = allTrades.map(t => {
-      cumProfit += t.profit;
-      if (t.profit > 0) {
+      cumProfit += t.adjustedProfit;
+      if (t.adjustedProfit > 0) {
         totalWins++;
-        grossProfit += t.profit;
+        grossProfit += t.adjustedProfit;
       } else {
-        grossLoss += Math.abs(t.profit);
+        grossLoss += Math.abs(t.adjustedProfit);
       }
       if (cumProfit > peak) peak = cumProfit;
       const dd = peak - cumProfit;
@@ -170,9 +196,9 @@ const PortfolioAnalyzer = ({ onBack }) => {
       profitFactor: grossLoss > 0 ? (grossProfit / grossLoss) : (grossProfit > 0 ? 100 : 0),
       maxDD,
       equityCurve,
-      strategyCount: strategies.length
+      strategyCount: activeStrats.length
     };
-  }, [strategies]);
+  }, [individualStats]);
 
   const removeStrategy = (id) => {
     setStrategies(prev => prev.filter(s => s.id !== id));
@@ -242,152 +268,198 @@ const PortfolioAnalyzer = ({ onBack }) => {
               </p>
             </div>
           </div>
-        ) : activeTab === 'PORTFOLIO' ? (
+        ) : (
           <div className="space-y-8 max-w-7xl mx-auto">
-            {/* Combined Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-              <StatCard 
-                label="Portfolio Net Profit" 
-                value={`$${portfolioStats.netProfit.toLocaleString(undefined, {maximumFractionDigits: 0})}`}
-                icon={<TrendingUp size={16} />}
-                color={portfolioStats.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}
-                subValue="Cumulative sum of all"
-              />
-              <StatCard 
-                label="Combined PF" 
-                value={portfolioStats.profitFactor.toFixed(2)}
-                icon={<Activity size={16} />}
-                color="text-purple-400"
-                subValue="Overall risk/reward"
-              />
-              <StatCard 
-                label="Aggregate Win Rate" 
-                value={`${portfolioStats.winRate.toFixed(1)}%`}
-                icon={<PieChart size={16} />}
-                color="text-zinc-300"
-                subValue={`${portfolioStats.totalTrades} total trades`}
-              />
-              <StatCard 
-                label="Portfolio Max DD" 
-                value={`$${portfolioStats.maxDD.toLocaleString(undefined, {maximumFractionDigits: 0})}`}
-                icon={<ArrowDown size={16} />}
-                color="text-red-500"
-                subValue="Worst combined dip"
-              />
-              <StatCard 
-                label="Strategies" 
-                value={portfolioStats.strategyCount}
-                icon={<Layers size={16} />}
-                color="text-purple-500"
-                subValue="Parallel active"
-              />
-            </div>
-
-            {/* Combined Equity Curve */}
-            <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 space-y-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-1 h-4 bg-purple-500 rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400">Combined Equity Curve</h3>
-                </div>
-                <div className="flex items-center gap-4">
-                  {strategies.map((s, i) => (
-                    <div key={s.id} className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full" style={{backgroundColor: COLORS.chart[i % COLORS.chart.length]}}></div>
-                      <span className="text-[9px] text-zinc-500 uppercase">{s.name}</span>
-                    </div>
-                  ))}
-                  <div className="flex items-center gap-2 border-l border-zinc-800 pl-4">
-                    <div className="w-3 h-0.5 bg-white"></div>
-                    <span className="text-[9px] text-white uppercase font-bold">Total Portfolio</span>
-                  </div>
-                </div>
+            {/* Strategy Exposure Panel */}
+            <div className="bg-zinc-950/50 border border-zinc-900 rounded-2xl p-6 space-y-4 shadow-xl">
+              <div className="flex items-center justify-between border-b border-zinc-900 pb-4">
+                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                  <Activity size={12} className="text-purple-500" />
+                  Strategy Exposure & Weighting
+                </h3>
+                <span className="text-[10px] text-zinc-600 font-mono italic">Adjust multipliers to see portfolio impact</span>
               </div>
               
-              <div className="h-80 w-full">
-                <EquityChart strategies={strategies} combined={portfolioStats.equityCurve} />
-              </div>
-            </div>
+              <div className="flex flex-wrap gap-3">
+                {strategies.map((s, i) => (
+                  <div 
+                    key={s.id} 
+                    className={`flex items-center gap-3 p-2 pl-3 rounded-xl border transition-all duration-300 ${s.active ? 'bg-zinc-900/50 border-zinc-800' : 'bg-black border-zinc-900 opacity-40'}`}
+                  >
+                    <button 
+                      onClick={() => toggleStrategy(s.id)}
+                      className={`w-5 h-5 rounded-md flex items-center justify-center transition-all ${s.active ? 'bg-purple-600 text-white' : 'bg-zinc-800 text-zinc-600'}`}
+                    >
+                      {s.active && <X size={12} className="rotate-45" />}
+                    </button>
+                    
+                    <span className={`text-[11px] font-bold tracking-tight ${s.active ? 'text-zinc-200' : 'text-zinc-600'}`}>
+                      {s.name}
+                    </span>
 
-            {/* Strategy Comparison Table */}
-            <div className="bg-zinc-950/50 border border-zinc-900 rounded-xl overflow-hidden">
-              <div className="px-6 py-4 border-b border-zinc-900">
-                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Strategy Comparison</h3>
-              </div>
-              <table className="w-full text-right text-[11px]">
-                <thead>
-                  <tr className="text-zinc-500 uppercase font-bold border-b border-zinc-900">
-                    <th className="px-6 py-3">Strategy Name</th>
-                    <th className="px-6 py-3">Net Profit</th>
-                    <th className="px-6 py-3">Win %</th>
-                    <th className="px-6 py-3">Profit Factor</th>
-                    <th className="px-6 py-3">Max Drawdown</th>
-                    <th className="px-6 py-3">Trades</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {strategies.map((s, i) => (
-                    <tr key={s.id} className="border-b border-zinc-900/50 hover:bg-zinc-900/30 transition-colors">
-                      <td className="px-6 py-4 flex items-center gap-3">
-                        <div className="w-2 h-2 rounded-full" style={{backgroundColor: COLORS.chart[i % COLORS.chart.length]}}></div>
-                        <span className="font-bold text-zinc-200">{s.name}</span>
-                      </td>
-                      <td className={`px-6 py-4 font-mono ${s.stats.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                        ${s.stats.netProfit.toLocaleString()}
-                      </td>
-                      <td className="px-6 py-4 font-mono text-zinc-400">{s.stats.winRate.toFixed(1)}%</td>
-                      <td className="px-6 py-4 font-mono text-purple-400">{s.stats.profitFactor.toFixed(2)}</td>
-                      <td className="px-6 py-4 font-mono text-red-500">${s.stats.maxDD.toLocaleString()}</td>
-                      <td className="px-6 py-4 font-mono text-zinc-500">{s.stats.trades}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-7xl mx-auto">
-            {strategies.map((s, i) => (
-              <div key={s.id} className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 space-y-6 relative group">
-                <button 
-                  onClick={() => removeStrategy(s.id)}
-                  className="absolute top-4 right-4 p-2 text-zinc-700 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
-                >
-                  <Trash2 size={16} />
-                </button>
-                
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-zinc-900 flex items-center justify-center border border-zinc-800">
-                    <Activity className="text-zinc-400" size={20} />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-zinc-100">{s.name}</h3>
-                    <p className="text-[10px] text-zinc-600 font-mono">{s.fileName}</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="space-y-1">
-                    <div className="text-[9px] text-zinc-600 uppercase font-bold tracking-wider">Net Profit</div>
-                    <div className={`text-base font-mono font-bold ${s.stats.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                      ${s.stats.netProfit.toLocaleString(undefined, {maximumFractionDigits: 0})}
+                    <div className="flex items-center bg-black border border-zinc-800 rounded-lg overflow-hidden h-7">
+                      <input 
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={s.multiplier}
+                        onChange={(e) => updateMultiplier(s.id, e.target.value)}
+                        className="w-10 bg-transparent text-center text-[11px] font-mono text-purple-400 outline-none"
+                      />
                     </div>
                   </div>
-                  <div className="space-y-1">
-                    <div className="text-[9px] text-zinc-600 uppercase font-bold tracking-wider">Profit Factor</div>
-                    <div className="text-base font-mono font-bold text-zinc-300">{s.stats.profitFactor.toFixed(2)}</div>
+                ))}
+              </div>
+            </div>
+
+            {activeTab === 'PORTFOLIO' ? (
+              <>
+                {/* Combined Stats */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                  <StatCard 
+                    label="Portfolio Net Profit" 
+                    value={`$${portfolioStats.netProfit.toLocaleString(undefined, {maximumFractionDigits: 0})}`}
+                    icon={<TrendingUp size={16} />}
+                    color={portfolioStats.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}
+                    subValue="Adjusted by multipliers"
+                  />
+                  <StatCard 
+                    label="Portfolio PF" 
+                    value={portfolioStats.profitFactor.toFixed(2)}
+                    icon={<Activity size={16} />}
+                    color="text-purple-400"
+                    subValue="Overall risk/reward"
+                  />
+                  <StatCard 
+                    label="Aggregate Win Rate" 
+                    value={`${portfolioStats.winRate.toFixed(1)}%`}
+                    icon={<PieChart size={16} />}
+                    color="text-zinc-300"
+                    subValue={`${portfolioStats.totalTrades} total trades`}
+                  />
+                  <StatCard 
+                    label="Portfolio Max DD" 
+                    value={`$${portfolioStats.maxDD.toLocaleString(undefined, {maximumFractionDigits: 0})}`}
+                    icon={<ArrowDown size={16} />}
+                    color="text-red-500"
+                    subValue="Combined equity dip"
+                  />
+                  <StatCard 
+                    label="Active Strategies" 
+                    value={portfolioStats.strategyCount}
+                    icon={<Layers size={16} />}
+                    color="text-purple-500"
+                    subValue={`${strategies.length} total loaded`}
+                  />
+                </div>
+
+                {/* Combined Equity Curve */}
+                <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-1 h-4 bg-purple-500 rounded-full"></div>
+                      <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400">Combined Equity Curve</h3>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 max-w-[60%]">
+                      {individualStats.map((s, i) => s.active && (
+                        <div key={s.id} className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full" style={{backgroundColor: COLORS.chart[i % COLORS.chart.length]}}></div>
+                          <span className="text-[9px] text-zinc-500 uppercase">{s.name} (x{s.multiplier})</span>
+                        </div>
+                      ))}
+                      <div className="flex items-center gap-2 border-l border-zinc-800 pl-4">
+                        <div className="w-3 h-0.5 bg-white"></div>
+                        <span className="text-[9px] text-white uppercase font-bold">Total Portfolio</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <div className="text-[9px] text-zinc-600 uppercase font-bold tracking-wider">Max DD</div>
-                    <div className="text-base font-mono font-bold text-red-500">${s.stats.maxDD.toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+                  
+                  <div className="h-80 w-full">
+                    <EquityChart strategies={individualStats.filter(s => s.active)} combined={portfolioStats.equityCurve} />
                   </div>
                 </div>
 
-                <div className="h-24 w-full opacity-50">
-                  <EquityChart strategies={[s]} combined={s.equityCurve} hideLegend />
+                {/* Strategy Comparison Table */}
+                <div className="bg-zinc-950/50 border border-zinc-900 rounded-xl overflow-hidden shadow-2xl">
+                  <div className="px-6 py-4 border-b border-zinc-900">
+                    <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Weighting Analysis</h3>
+                  </div>
+                  <table className="w-full text-right text-[11px]">
+                    <thead>
+                      <tr className="text-zinc-500 uppercase font-bold border-b border-zinc-900">
+                        <th className="px-6 py-3">Strategy Name</th>
+                        <th className="px-6 py-3 text-center">Weight</th>
+                        <th className="px-6 py-3">Net Profit</th>
+                        <th className="px-6 py-3">Max Drawdown</th>
+                        <th className="px-6 py-3">Contribution %</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {individualStats.map((s, i) => (
+                        <tr key={s.id} className={`border-b border-zinc-900/50 transition-colors ${s.active ? 'hover:bg-zinc-900/30' : 'opacity-30'}`}>
+                          <td className="px-6 py-4 flex items-center gap-3">
+                            <div className="w-2 h-2 rounded-full" style={{backgroundColor: COLORS.chart[i % COLORS.chart.length]}}></div>
+                            <span className={`font-bold ${s.active ? 'text-zinc-200' : 'text-zinc-600'}`}>{s.name}</span>
+                          </td>
+                          <td className="px-6 py-4 text-center font-mono text-purple-400">x{s.multiplier}</td>
+                          <td className={`px-6 py-4 font-mono ${s.stats.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                            ${s.stats.netProfit.toLocaleString()}
+                          </td>
+                          <td className="px-6 py-4 font-mono text-red-500">${s.stats.maxDD.toLocaleString()}</td>
+                          <td className="px-6 py-4 font-mono text-zinc-500">
+                            {portfolioStats.netProfit !== 0 ? ((s.stats.netProfit / portfolioStats.netProfit) * 100).toFixed(1) : 0}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
+              </>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-7xl mx-auto">
+                {individualStats.map((s, i) => (
+                  <div key={s.id} className={`bg-zinc-950 border border-zinc-900 rounded-2xl p-6 space-y-6 relative group transition-all ${!s.active && 'opacity-40 grayscale'}`}>
+                    <button 
+                      onClick={() => removeStrategy(s.id)}
+                      className="absolute top-4 right-4 p-2 text-zinc-700 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                    
+                    <div className="flex items-center gap-4">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all ${s.active ? 'bg-zinc-900 border-zinc-800 text-purple-500' : 'bg-black border-zinc-900 text-zinc-700'}`}>
+                        <Activity size={20} />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-zinc-100">{s.name}</h3>
+                        <p className="text-[10px] text-zinc-600 font-mono">{s.fileName} {s.multiplier !== 1 && `(Multiplier: x${s.multiplier})`}</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="space-y-1">
+                        <div className="text-[9px] text-zinc-600 uppercase font-bold tracking-wider">Net Profit</div>
+                        <div className={`text-base font-mono font-bold ${s.stats.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                          ${s.stats.netProfit.toLocaleString(undefined, {maximumFractionDigits: 0})}
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-[9px] text-zinc-600 uppercase font-bold tracking-wider">Profit Factor</div>
+                        <div className="text-base font-mono font-bold text-zinc-300">{s.stats.profitFactor.toFixed(2)}</div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-[9px] text-zinc-600 uppercase font-bold tracking-wider">Max DD</div>
+                        <div className="text-base font-mono font-bold text-red-500">${s.stats.maxDD.toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+                      </div>
+                    </div>
+
+                    <div className="h-24 w-full opacity-50">
+                      <EquityChart strategies={[s]} combined={s.equityCurve} hideLegend />
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         )}
       </div>
