@@ -340,55 +340,55 @@ const PortfolioAnalyzer = ({ onBack }) => {
             {activeTab === 'PORTFOLIO' ? (
               <>
                 {/* Combined Stats */}
-                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
                   <StatCard 
-                    label="Portfolio Net Profit" 
+                    label="Net Profit" 
                     value={`$${portfolioStats.netProfit.toLocaleString(undefined, {maximumFractionDigits: 0})}`}
                     icon={<TrendingUp size={16} />}
                     color={portfolioStats.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}
                     subValue="Total Gain"
                   />
                   <StatCard 
-                    label="Monthly Average" 
+                    label="Monthly Avg" 
                     value={`$${portfolioStats.monthlyAvg.toLocaleString(undefined, {maximumFractionDigits: 0})}`}
                     icon={<BarChart2 size={16} />}
                     color="text-blue-400"
-                    subValue="Avg per month"
+                    subValue="Avg/Month"
                   />
                   <StatCard 
-                    label="Portfolio PF" 
+                    label="Profit Factor" 
                     value={portfolioStats.profitFactor.toFixed(2)}
                     icon={<Activity size={16} />}
                     color="text-zinc-300"
-                    subValue="Profit Factor"
+                    subValue="Risk/Reward"
                   />
                   <StatCard 
-                    label="Portfolio Max DD" 
+                    label="Max DD" 
                     value={`$${portfolioStats.maxDD.toLocaleString(undefined, {maximumFractionDigits: 0})}`}
                     icon={<ArrowDown size={16} />}
                     color="text-red-500"
-                    subValue="Worst Drawdown"
+                    subValue="Max Drawdown"
                   />
                   <StatCard 
-                    label="Recovery Time" 
-                    value={`${portfolioStats.maxRecoveryTime.toFixed(0)} Days`}
+                    label="Recovery" 
+                    value={`${portfolioStats.maxRecoveryTime.toFixed(0)}d`}
                     icon={<TrendingUp size={16} className="rotate-90" />}
                     color="text-amber-500"
-                    subValue="Max Drawdown Duration"
+                    subValue="DD Duration"
                   />
                   <StatCard 
-                    label="Aggregate Win Rate" 
+                    label="Win Rate" 
                     value={`${portfolioStats.winRate.toFixed(1)}%`}
                     icon={<PieChart size={16} />}
                     color="text-zinc-300"
-                    subValue={`${portfolioStats.totalTrades} trades`}
+                    subValue={`${portfolioStats.totalTrades} Trades`}
                   />
                   <StatCard 
-                    label="Active Strategies" 
+                    label="Active" 
                     value={portfolioStats.strategyCount}
                     icon={<Layers size={16} />}
                     color="text-blue-500"
-                    subValue={`${strategies.length} loaded`}
+                    subValue={`of ${strategies.length}`}
                   />
                 </div>
 
@@ -574,17 +574,17 @@ const EquityChart = ({ strategies, combined, hideLegend }) => {
 };
 
 const StatCard = ({ label, value, icon, color, subValue }) => (
-  <div className="bg-zinc-950 border border-zinc-900 p-5 rounded-xl space-y-3 relative overflow-hidden group hover:border-zinc-700 transition-all duration-300">
-    <div className="absolute -right-2 -top-2 opacity-5 group-hover:opacity-10 transition-opacity">
-      {React.cloneElement(icon, { size: 64 })}
+  <div className="bg-zinc-950 border border-zinc-900 p-3 rounded-xl space-y-1.5 relative overflow-hidden group hover:border-zinc-700 transition-all duration-300 min-w-[120px]">
+    <div className="absolute -right-1 -top-1 opacity-5 group-hover:opacity-10 transition-opacity">
+      {React.cloneElement(icon, { size: 40 })}
     </div>
-    <div className="flex items-center gap-2 text-zinc-500">
-      {icon}
-      <span className="text-[10px] font-bold uppercase tracking-wider">{label}</span>
+    <div className="flex items-center gap-1.5 text-zinc-500">
+      {React.cloneElement(icon, { size: 12 })}
+      <span className="text-[9px] font-bold uppercase tracking-wider whitespace-nowrap">{label}</span>
     </div>
-    <div className="space-y-1">
-      <div className={`text-2xl font-mono font-bold tracking-tighter ${color}`}>{value}</div>
-      <div className="text-[9px] text-zinc-600 font-medium uppercase tracking-wide">{subValue}</div>
+    <div className="space-y-0.5 relative z-10">
+      <div className={`text-lg font-mono font-bold tracking-tighter ${color} leading-none`}>{value}</div>
+      <div className="text-[8px] text-zinc-600 font-medium uppercase tracking-tight whitespace-nowrap">{subValue}</div>
     </div>
   </div>
 );
