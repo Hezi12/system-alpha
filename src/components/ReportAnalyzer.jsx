@@ -18,6 +18,7 @@ const PortfolioAnalyzer = ({ onBack }) => {
   const [strategies, setStrategies] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('PORTFOLIO'); // 'PORTFOLIO' or 'INDIVIDUAL'
+  const [activeChart, setActiveChart] = useState('EQUITY'); // 'EQUITY' or 'DRAWDOWN'
   const [isCalendarOpen, setIsCalendarOpen] = useState(true);
 
   const parseCurrency = (val) => {
@@ -132,7 +133,10 @@ const PortfolioAnalyzer = ({ onBack }) => {
       let lastPeakTime = s.trades[0]?.exitTime || 0;
       let maxRecoveryTime = 0;
       
-      const curve = s.trades.map(t => {
+      const curve = [];
+      const drawdownCurve = [];
+      
+      s.trades.forEach(t => {
         const p = t.profit * s.multiplier;
         cumProfit += p;
         if (p > 0) {
@@ -151,7 +155,9 @@ const PortfolioAnalyzer = ({ onBack }) => {
 
         const dd = peak - cumProfit;
         if (dd > maxDD) maxDD = dd;
-        return { time: t.exitTime, value: cumProfit };
+        
+        curve.push({ time: t.exitTime, value: cumProfit });
+        drawdownCurve.push({ time: t.exitTime, value: -dd });
       });
 
       const firstTime = s.trades[0]?.entryTime || s.trades[0]?.exitTime || 0;
@@ -170,7 +176,8 @@ const PortfolioAnalyzer = ({ onBack }) => {
           monthlyAvg,
           maxRecoveryTime: maxRecoveryTime / (1000 * 60 * 60 * 24)
         },
-        equityCurve: curve
+        equityCurve: curve,
+        drawdownCurve
       };
     });
   }, [strategies]);
@@ -194,7 +201,10 @@ const PortfolioAnalyzer = ({ onBack }) => {
     let lastPeakTime = allTrades[0].exitTime;
     let maxRecoveryTime = 0;
 
-    const equityCurve = allTrades.map(t => {
+    const equityCurve = [];
+    const drawdownCurve = [];
+
+    allTrades.forEach(t => {
       cumProfit += t.adjustedProfit;
       if (t.adjustedProfit > 0) {
         totalWins++;
@@ -212,7 +222,9 @@ const PortfolioAnalyzer = ({ onBack }) => {
 
       const dd = peak - cumProfit;
       if (dd > maxDD) maxDD = dd;
-      return { time: t.exitTime, value: cumProfit };
+      
+      equityCurve.push({ time: t.exitTime, value: cumProfit });
+      drawdownCurve.push({ time: t.exitTime, value: -dd });
     });
 
     const firstTime = allTrades[0].entryTime || allTrades[0].exitTime;
@@ -229,6 +241,7 @@ const PortfolioAnalyzer = ({ onBack }) => {
       monthlyAvg,
       maxRecoveryTime: maxRecoveryTime / (1000 * 60 * 60 * 24), // in days
       equityCurve,
+      drawdownCurve,
       strategyCount: activeStrats.length
     };
   }, [individualStats]);
@@ -416,14 +429,35 @@ const PortfolioAnalyzer = ({ onBack }) => {
                   />
                 </div>
 
-                {/* Combined Equity Curve */}
+                {/* Combined Portfolio Chart Section */}
                 <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 space-y-6">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-1 h-4 bg-blue-500 rounded-full"></div>
-                      <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400">Combined Equity Curve</h3>
+                    <div className="flex items-center gap-6">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-1 h-4 ${activeChart === 'EQUITY' ? 'bg-blue-500' : 'bg-red-500'} rounded-full transition-colors`}></div>
+                        <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400">
+                          {activeChart === 'EQUITY' ? 'Combined Equity Curve' : 'Portfolio Drawdown Evolution'}
+                        </h3>
+                      </div>
+                      
+                      {/* Chart Mode Tabs */}
+                      <div className="flex bg-black border border-zinc-900 p-0.5 rounded-lg">
+                        <button 
+                          onClick={() => setActiveChart('EQUITY')}
+                          className={`px-3 py-1 text-[9px] font-bold rounded-md transition-all ${activeChart === 'EQUITY' ? 'bg-zinc-800 text-white shadow-lg' : 'text-zinc-600 hover:text-zinc-400'}`}
+                        >
+                          EQUITY
+                        </button>
+                        <button 
+                          onClick={() => setActiveChart('DRAWDOWN')}
+                          className={`px-3 py-1 text-[9px] font-bold rounded-md transition-all ${activeChart === 'DRAWDOWN' ? 'bg-zinc-800 text-white shadow-lg' : 'text-zinc-600 hover:text-zinc-400'}`}
+                        >
+                          DRAWDOWN
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 max-w-[60%]">
+
+                    <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 max-w-[50%]">
                       {individualStats.map((s, i) => s.active && (
                         <div key={s.id} className="flex items-center gap-2">
                           <div className="w-2 h-2 rounded-full" style={{backgroundColor: COLORS.chart[i % COLORS.chart.length]}}></div>
@@ -431,14 +465,18 @@ const PortfolioAnalyzer = ({ onBack }) => {
                         </div>
                       ))}
                       <div className="flex items-center gap-2 border-l border-zinc-800 pl-4">
-                        <div className="w-3 h-0.5 bg-white"></div>
-                        <span className="text-[9px] text-white uppercase font-bold">Total Portfolio</span>
+                        <div className={`w-3 h-0.5 ${activeChart === 'EQUITY' ? 'bg-white' : 'bg-red-500'}`}></div>
+                        <span className={`text-[9px] uppercase font-bold ${activeChart === 'EQUITY' ? 'text-white' : 'text-red-500'}`}>Total Portfolio</span>
                       </div>
                     </div>
                   </div>
                   
                   <div className="h-80 w-full">
-                    <EquityChart strategies={individualStats.filter(s => s.active)} combined={portfolioStats.equityCurve} />
+                    <PortfolioChart 
+                      strategies={individualStats.filter(s => s.active)} 
+                      combined={activeChart === 'EQUITY' ? portfolioStats.equityCurve : portfolioStats.drawdownCurve} 
+                      mode={activeChart}
+                    />
                   </div>
                 </div>
 
@@ -581,7 +619,7 @@ const PortfolioAnalyzer = ({ onBack }) => {
                     </div>
 
                     <div className="h-24 w-full opacity-50">
-                      <EquityChart strategies={[s]} combined={s.equityCurve} hideLegend />
+                      <PortfolioChart strategies={[s]} combined={s.equityCurve} mode="EQUITY" hideLegend />
                     </div>
                   </div>
                 ))}
@@ -594,21 +632,19 @@ const PortfolioAnalyzer = ({ onBack }) => {
   );
 };
 
-const EquityChart = ({ strategies, combined, hideLegend }) => {
+const PortfolioChart = ({ strategies, combined, mode, hideLegend }) => {
   if (!combined || combined.length === 0) return null;
 
-  // Simple SVG Line Chart implementation
   const width = 1000;
   const height = 300;
   const padding = 20;
 
-  // Find min/max values for scaling
-  let minVal = 0;
-  let maxVal = 0;
+  let minVal = mode === 'DRAWDOWN' ? -1 : 0;
+  let maxVal = mode === 'DRAWDOWN' ? 0 : 1;
   
-  // Also include individual strategy curves in scaling
   strategies.forEach(s => {
-    s.equityCurve.forEach(p => {
+    const curve = mode === 'EQUITY' ? s.equityCurve : s.drawdownCurve;
+    curve.forEach(p => {
       if (p.value < minVal) minVal = p.value;
       if (p.value > maxVal) maxVal = p.value;
     });
@@ -623,35 +659,59 @@ const EquityChart = ({ strategies, combined, hideLegend }) => {
   const scaleY = (val) => height - padding - ((val - minVal) / range) * (height - 2 * padding);
   const scaleX = (i, total) => padding + (i / (total - 1)) * (width - 2 * padding);
 
+  const combinedPoints = combined.map((p, i) => `${scaleX(i, combined.length)},${scaleY(p.value)}`);
+  
+  // For drawdown area, we need to close the path at y=0
+  const areaPoints = mode === 'DRAWDOWN' 
+    ? `${scaleX(0, combined.length)},${scaleY(0)} ${combinedPoints.join(' ')} ${scaleX(combined.length - 1, combined.length)},${scaleY(0)}`
+    : "";
+
   return (
     <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="overflow-visible">
+      <defs>
+        <linearGradient id="drawdownGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#ef4444" stopOpacity="0.3" />
+          <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+
       {/* Grid Lines */}
       <line x1={padding} y1={scaleY(0)} x2={width-padding} y2={scaleY(0)} stroke="#18181b" strokeWidth="1" strokeDasharray="4 4" />
       
       {/* Individual Strategy Curves */}
       {strategies.length > 1 && strategies.map((s, idx) => {
-        const points = s.equityCurve.map((p, i) => `${scaleX(i, s.equityCurve.length)},${scaleY(p.value)}`).join(' ');
+        const curve = mode === 'EQUITY' ? s.equityCurve : s.drawdownCurve;
+        const points = curve.map((p, i) => `${scaleX(i, curve.length)},${scaleY(p.value)}`).join(' ');
         return (
           <polyline
             key={s.id}
             fill="none"
             stroke={COLORS.chart[idx % COLORS.chart.length]}
             strokeWidth="1.5"
-            strokeOpacity="0.4"
+            strokeOpacity={mode === 'EQUITY' ? "0.4" : "0.2"}
             points={points}
           />
         );
       })}
 
+      {/* Drawdown Area */}
+      {mode === 'DRAWDOWN' && (
+        <polygon
+          points={areaPoints}
+          fill="url(#drawdownGradient)"
+          className="animate-in fade-in duration-700"
+        />
+      )}
+
       {/* Combined Portfolio Curve */}
       <polyline
         fill="none"
-        stroke="#ffffff"
+        stroke={mode === 'EQUITY' ? "#ffffff" : "#ef4444"}
         strokeWidth="2.5"
         strokeLinejoin="round"
         strokeLinecap="round"
-        points={combined.map((p, i) => `${scaleX(i, combined.length)},${scaleY(p.value)}`).join(' ')}
-        className="drop-shadow-lg"
+        points={combinedPoints.join(' ')}
+        className="drop-shadow-lg transition-all duration-500"
       />
     </svg>
   );
