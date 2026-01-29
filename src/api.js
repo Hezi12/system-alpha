@@ -1,8 +1,7 @@
 /**
  * API Client for SYSTEM_ALPHA Backend
- * ב-Vercel: הגדר VITE_API_URL לכתובת ה-Backend (למשל Railway/Render)
  */
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const API_BASE_URL = 'http://localhost:4000';
 
 /**
  * Upload CSV file

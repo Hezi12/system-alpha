@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, Activity, ChevronLeft, ChevronRight, BarChart2, Clock, Calendar, Filter, FileCheck, Play, TrendingUp, Hash, DollarSign, X, Table, ArrowUp, ArrowDown, CalendarRange, ArrowDownRight, Download, ChevronDown, Plus, Minus, ZoomIn, BarChart3, Save, FolderOpen, Trash2, ToggleLeft, ToggleRight, Power, PowerOff, Eye, EyeOff, Sparkles, RotateCcw } from 'lucide-react';
+import { Upload, Activity, ChevronLeft, ChevronRight, BarChart2, Clock, Calendar, Filter, FileCheck, Play, TrendingUp, Hash, DollarSign, X, Table, ArrowUp, ArrowDown, CalendarRange, ArrowDownRight, Download, ChevronDown, Plus, Minus, ZoomIn, BarChart3, Save, FolderOpen, Trash2, ToggleLeft, ToggleRight, Power, PowerOff, Eye, EyeOff, Sparkles, RotateCcw, LayoutDashboard, FileText } from 'lucide-react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { CONDITIONS, CATEGORIES, getConditionById } from './conditions';
 import * as Indicators from './indicators';
 import { uploadCSV, runBacktest as apiRunBacktest, runOptimization as apiRunOptimization, getBackendStatus } from './api';
+import ReportAnalyzer from './components/ReportAnalyzer';
 
 // --- קבועים ועיצוב (Design System) ---
 const COLORS = {
@@ -2822,6 +2823,7 @@ export default function App() {
   const [selectedStrategyId, setSelectedStrategyId] = useState(null);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [strategyName, setStrategyName] = useState('');
+  const [currentPage, setCurrentPage] = useState('MAIN'); // 'MAIN' or 'REPORTS'
 
   const [config, setConfig] = useState({
     selectedYears: [],
@@ -4303,9 +4305,27 @@ export default function App() {
       {showReport && <DetailedReport results={results} strategyConfig={strategyConfig} onClose={() => setShowReport(false)} onTradeClick={handleZoomToTrade} />}
 
       <div className={`flex flex-col border-l border-zinc-800 bg-black transition-all duration-300 ${config.showSidebar ? 'w-72' : 'w-0'} overflow-hidden relative z-20`}>
-        <div className="h-12 border-b border-zinc-800 flex items-center px-4 gap-2 bg-black select-none shrink-0">
-          <Activity className="text-blue-500" size={16} />
-          <h1 className="text-xs font-bold tracking-widest text-zinc-100">SYSTEM <span className="text-blue-500">ALPHA</span></h1>
+        <div className="h-12 border-b border-zinc-800 flex items-center px-4 justify-between bg-black select-none shrink-0">
+          <div className="flex items-center gap-2 cursor-pointer" onClick={() => setCurrentPage('MAIN')}>
+            <Activity className="text-blue-500" size={16} />
+            <h1 className="text-xs font-bold tracking-widest text-zinc-100">SYSTEM <span className="text-blue-500">ALPHA</span></h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setCurrentPage('REPORTS')}
+              className={`p-1.5 rounded transition-all ${currentPage === 'REPORTS' ? 'text-blue-400 bg-blue-500/10' : 'text-zinc-500 hover:text-zinc-300'}`}
+              title="ניתוח דוחות Grid"
+            >
+              <FileText size={14} />
+            </button>
+            <button 
+              onClick={() => setCurrentPage('MAIN')}
+              className={`p-1.5 rounded transition-all ${currentPage === 'MAIN' ? 'text-blue-400 bg-blue-500/10' : 'text-zinc-500 hover:text-zinc-300'}`}
+              title="מסך ראשי"
+            >
+              <LayoutDashboard size={14} />
+            </button>
+          </div>
         </div>
         
         <div className="flex border-b border-zinc-800 bg-zinc-950/50">
@@ -4973,242 +4993,248 @@ export default function App() {
       </div>
 
       <div className="flex-1 flex flex-col relative h-full">
-        <div className="h-12 border-b border-zinc-900 bg-black flex items-center justify-between px-4 z-10 select-none">
-           <div className="flex items-center gap-4">
-              <span className="text-xs font-bold text-zinc-200 tracking-wider">NQ FUTURES</span>
-              <span className="text-[10px] font-mono px-2 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded">
-                {config.primaryTimeframe}M
-              </span>
-              <span className="text-[10px] font-mono px-2 py-0.5 bg-zinc-900 text-zinc-500 border border-zinc-800 rounded">
-                {config.sessionType}
-              </span>
-           </div>
-           
-           <div className="flex items-center gap-2">
-              {/* Zoom Controls */}
-              <div className="flex items-center gap-1 border-r border-zinc-800 pr-2 mr-2">
-                <button
-                  onClick={handleZoomOut}
-                  disabled={!isDataLoaded}
-                  className="p-1.5 rounded hover:bg-zinc-900 text-zinc-500 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                  title="Zoom Out"
-                >
-                  <Minus size={14} />
-                </button>
-                <button
-                  onClick={handleZoomIn}
-                  disabled={!isDataLoaded}
-                  className="p-1.5 rounded hover:bg-zinc-900 text-zinc-500 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                  title="Zoom In"
-                >
-                  <Plus size={14} />
-                </button>
-                <button
-                  onClick={handlePanLeft}
-                  disabled={!isDataLoaded}
-                  className="p-1.5 rounded hover:bg-zinc-900 text-zinc-500 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                  title="Pan Left"
-                >
-                  <ChevronLeft size={14} />
-                </button>
-                <button
-                  onClick={handlePanRight}
-                  disabled={!isDataLoaded}
-                  className="p-1.5 rounded hover:bg-zinc-900 text-zinc-500 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                  title="Pan Right"
-                >
-                  <ChevronRight size={14} />
-                </button>
-                <button
-                  onClick={handleToggleClickZoom}
-                  disabled={!isDataLoaded}
-                  className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
-                    isClickZoomMode 
-                      ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' 
-                      : 'hover:bg-zinc-900 text-zinc-500 hover:text-white'
-                  }`}
-                  title="Click to Zoom"
-                >
-                  <ZoomIn size={14} />
-                </button>
-              </div>
-              
-              <button 
-                onClick={() => setConfig(prev => ({ ...prev, showSidebar: !prev.showSidebar }))}
-                className="p-1.5 rounded hover:bg-zinc-900 text-zinc-500 hover:text-white transition-colors"
-              >
-                {config.showSidebar ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-              </button>
-           </div>
-        </div>
-
-        <div className="flex-1 relative w-full h-full overflow-hidden flex flex-col">
-           <div className={`${config.showSecondaryChart ? 'flex-[2]' : 'flex-1'} relative transition-all duration-300`}>
-             <div 
-               ref={chartContainerRef} 
-               className={`absolute inset-0 w-full h-full ${isClickZoomMode ? 'cursor-pointer' : ''}`}
-             />
-             <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/50 backdrop-blur-sm border border-zinc-800 rounded text-[10px] text-blue-400 font-mono">
-               PRIMARY: {config.primaryTimeframe}m
-             </div>
-           </div>
-
-           <div className={`flex flex-col transition-all duration-300 overflow-hidden ${config.showSecondaryChart ? 'flex-1 border-t border-zinc-800' : 'h-0 opacity-0'}`}>
-             <div className="flex-1 relative">
-               <div 
-                 ref={secondaryChartContainerRef} 
-                 className="absolute inset-0 w-full h-full"
-               />
-               <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/50 backdrop-blur-sm border border-zinc-800 rounded text-[10px] text-zinc-400 font-mono">
-                 SECONDARY: {config.secondaryTimeframe}m
+        {currentPage === 'MAIN' ? (
+          <>
+            <div className="h-12 border-b border-zinc-900 bg-black flex items-center justify-between px-4 z-10 select-none">
+               <div className="flex items-center gap-4">
+                  <span className="text-xs font-bold text-zinc-200 tracking-wider">NQ FUTURES</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded">
+                    {config.primaryTimeframe}M
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 bg-zinc-900 text-zinc-500 border border-zinc-800 rounded">
+                    {config.sessionType}
+                  </span>
                </div>
-             </div>
-           </div>
-           
-           {/* Data Box Tooltip */}
-           {crosshairData && (
-             <div 
-               className="absolute z-50 bg-zinc-900/95 border border-zinc-700 rounded-lg p-3 shadow-xl pointer-events-none"
-               style={{
-                 left: `${mousePosition.x + 15}px`,
-                 top: `${mousePosition.y - 10}px`,
-                 transform: mousePosition.x > window.innerWidth - 250 ? 'translateX(-100%)' : 'none'
-               }}
-             >
-               <div className="space-y-2 min-w-[200px]">
-                 {/* Time */}
-                 <div className="border-b border-zinc-800 pb-1.5">
-                   <div className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider mb-0.5">Time</div>
-                   <div className="text-xs font-mono text-zinc-200">
-                     {new Date(crosshairData.time * 1000).toLocaleString('en-GB', {
-                       day: '2-digit',
-                       month: '2-digit',
-                       year: 'numeric',
-                       hour: '2-digit',
-                       minute: '2-digit',
-                       timeZone: 'UTC'
-                     })}
+               
+               <div className="flex items-center gap-2">
+                  {/* Zoom Controls */}
+                  <div className="flex items-center gap-1 border-r border-zinc-800 pr-2 mr-2">
+                    <button
+                      onClick={handleZoomOut}
+                      disabled={!isDataLoaded}
+                      className="p-1.5 rounded hover:bg-zinc-900 text-zinc-500 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Zoom Out"
+                    >
+                      <Minus size={14} />
+                    </button>
+                    <button
+                      onClick={handleZoomIn}
+                      disabled={!isDataLoaded}
+                      className="p-1.5 rounded hover:bg-zinc-900 text-zinc-500 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Zoom In"
+                    >
+                      <Plus size={14} />
+                    </button>
+                    <button
+                      onClick={handlePanLeft}
+                      disabled={!isDataLoaded}
+                      className="p-1.5 rounded hover:bg-zinc-900 text-zinc-500 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Pan Left"
+                    >
+                      <ChevronLeft size={14} />
+                    </button>
+                    <button
+                      onClick={handlePanRight}
+                      disabled={!isDataLoaded}
+                      className="p-1.5 rounded hover:bg-zinc-900 text-zinc-500 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Pan Right"
+                    >
+                      <ChevronRight size={14} />
+                    </button>
+                    <button
+                      onClick={handleToggleClickZoom}
+                      disabled={!isDataLoaded}
+                      className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                        isClickZoomMode 
+                          ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' 
+                          : 'hover:bg-zinc-900 text-zinc-500 hover:text-white'
+                      }`}
+                      title="Click to Zoom"
+                    >
+                      <ZoomIn size={14} />
+                    </button>
+                  </div>
+                  
+                  <button 
+                    onClick={() => setConfig(prev => ({ ...prev, showSidebar: !prev.showSidebar }))}
+                    className="p-1.5 rounded hover:bg-zinc-900 text-zinc-500 hover:text-white transition-colors"
+                  >
+                    {config.showSidebar ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+                  </button>
+               </div>
+            </div>
+
+            <div className="flex-1 relative w-full h-full overflow-hidden flex flex-col">
+               <div className={`${config.showSecondaryChart ? 'flex-[2]' : 'flex-1'} relative transition-all duration-300`}>
+                 <div 
+                   ref={chartContainerRef} 
+                   className={`absolute inset-0 w-full h-full ${isClickZoomMode ? 'cursor-pointer' : ''}`}
+                 />
+                 <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/50 backdrop-blur-sm border border-zinc-800 rounded text-[10px] text-blue-400 font-mono">
+                   PRIMARY: {config.primaryTimeframe}m
+                 </div>
+               </div>
+
+               <div className={`flex flex-col transition-all duration-300 overflow-hidden ${config.showSecondaryChart ? 'flex-1 border-t border-zinc-800' : 'h-0 opacity-0'}`}>
+                 <div className="flex-1 relative">
+                   <div 
+                     ref={secondaryChartContainerRef} 
+                     className="absolute inset-0 w-full h-full"
+                   />
+                   <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/50 backdrop-blur-sm border border-zinc-800 rounded text-[10px] text-zinc-400 font-mono">
+                     SECONDARY: {config.secondaryTimeframe}m
                    </div>
                  </div>
-
-                 {/* OHLC */}
-                 <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                   <div>
-                     <div className="text-[9px] text-zinc-500 uppercase mb-0.5">Open</div>
-                     <div className="text-zinc-300">{crosshairData.open.toFixed(2)}</div>
-                   </div>
-                   <div>
-                     <div className="text-[9px] text-zinc-500 uppercase mb-0.5">High</div>
-                     <div className="text-green-500">{crosshairData.high.toFixed(2)}</div>
-                   </div>
-                   <div>
-                     <div className="text-[9px] text-zinc-500 uppercase mb-0.5">Low</div>
-                     <div className="text-red-500">{crosshairData.low.toFixed(2)}</div>
-                   </div>
-                   <div>
-                     <div className="text-[9px] text-zinc-500 uppercase mb-0.5">Close</div>
-                     <div className={`${crosshairData.close >= crosshairData.open ? 'text-green-500' : 'text-red-500'}`}>
-                       {crosshairData.close.toFixed(2)}
+               </div>
+               
+               {/* Data Box Tooltip */}
+               {crosshairData && (
+                 <div 
+                   className="absolute z-50 bg-zinc-900/95 border border-zinc-700 rounded-lg p-3 shadow-xl pointer-events-none"
+                   style={{
+                     left: `${mousePosition.x + 15}px`,
+                     top: `${mousePosition.y - 10}px`,
+                     transform: mousePosition.x > window.innerWidth - 250 ? 'translateX(-100%)' : 'none'
+                   }}
+                 >
+                   <div className="space-y-2 min-w-[200px]">
+                     {/* Time */}
+                     <div className="border-b border-zinc-800 pb-1.5">
+                       <div className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider mb-0.5">Time</div>
+                       <div className="text-xs font-mono text-zinc-200">
+                         {new Date(crosshairData.time * 1000).toLocaleString('en-GB', {
+                           day: '2-digit',
+                           month: '2-digit',
+                           year: 'numeric',
+                           hour: '2-digit',
+                           minute: '2-digit',
+                           timeZone: 'UTC'
+                         })}
+                       </div>
                      </div>
+
+                     {/* OHLC */}
+                     <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                       <div>
+                         <div className="text-[9px] text-zinc-500 uppercase mb-0.5">Open</div>
+                         <div className="text-zinc-300">{crosshairData.open.toFixed(2)}</div>
+                       </div>
+                       <div>
+                         <div className="text-[9px] text-zinc-500 uppercase mb-0.5">High</div>
+                         <div className="text-green-500">{crosshairData.high.toFixed(2)}</div>
+                       </div>
+                       <div>
+                         <div className="text-[9px] text-zinc-500 uppercase mb-0.5">Low</div>
+                         <div className="text-red-500">{crosshairData.low.toFixed(2)}</div>
+                       </div>
+                       <div>
+                         <div className="text-[9px] text-zinc-500 uppercase mb-0.5">Close</div>
+                         <div className={`${crosshairData.close >= crosshairData.open ? 'text-green-500' : 'text-red-500'}`}>
+                           {crosshairData.close.toFixed(2)}
+                         </div>
+                       </div>
+                     </div>
+
+                     {/* Volume */}
+                     <div className="border-t border-zinc-800 pt-1.5">
+                       <div className="text-[9px] text-zinc-500 uppercase mb-0.5">Volume</div>
+                       <div className="text-xs font-mono text-zinc-300">
+                         {crosshairData.volume.toLocaleString()}
+                       </div>
+                     </div>
+
+                     {/* Indicators */}
+                     {Object.keys(crosshairData.indicators).length > 0 && (
+                       <div className="border-t border-zinc-800 pt-1.5 space-y-1">
+                         <div className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider mb-1">Indicators</div>
+                         {crosshairData.indicators.rsi && (
+                           <div className="flex justify-between text-xs">
+                             <span className="text-zinc-400">RSI</span>
+                             <span className="font-mono text-zinc-200">{crosshairData.indicators.rsi}</span>
+                           </div>
+                         )}
+                         {crosshairData.indicators.macd !== undefined && (
+                           <div className="flex justify-between text-xs">
+                             <span className="text-zinc-400">MACD</span>
+                             <span className="font-mono text-zinc-200">{crosshairData.indicators.macd}</span>
+                           </div>
+                         )}
+                         {crosshairData.indicators.macdSignal !== undefined && (
+                           <div className="flex justify-between text-xs">
+                             <span className="text-zinc-400">Signal</span>
+                             <span className="font-mono text-zinc-200">{crosshairData.indicators.macdSignal}</span>
+                           </div>
+                         )}
+                         {crosshairData.indicators.stochK !== undefined && (
+                           <div className="flex justify-between text-xs">
+                             <span className="text-zinc-400">Stoch K</span>
+                             <span className="font-mono text-zinc-200">{crosshairData.indicators.stochK}</span>
+                           </div>
+                         )}
+                         {crosshairData.indicators.stochD !== undefined && (
+                           <div className="flex justify-between text-xs">
+                             <span className="text-zinc-400">Stoch D</span>
+                             <span className="font-mono text-zinc-200">{crosshairData.indicators.stochD}</span>
+                           </div>
+                         )}
+                         {crosshairData.indicators.sma20 !== undefined && (
+                           <div className="flex justify-between text-xs">
+                             <span className="text-zinc-400">SMA(20)</span>
+                             <span className="font-mono text-zinc-200">{crosshairData.indicators.sma20}</span>
+                           </div>
+                         )}
+                         {crosshairData.indicators.sma50 !== undefined && (
+                           <div className="flex justify-between text-xs">
+                             <span className="text-zinc-400">SMA(50)</span>
+                             <span className="font-mono text-zinc-200">{crosshairData.indicators.sma50}</span>
+                           </div>
+                         )}
+                         {crosshairData.indicators.ema20 !== undefined && (
+                           <div className="flex justify-between text-xs">
+                             <span className="text-zinc-400">EMA(20)</span>
+                             <span className="font-mono text-zinc-200">{crosshairData.indicators.ema20}</span>
+                           </div>
+                         )}
+                         {crosshairData.indicators.ema50 !== undefined && (
+                           <div className="flex justify-between text-xs">
+                             <span className="text-zinc-400">EMA(50)</span>
+                             <span className="font-mono text-zinc-200">{crosshairData.indicators.ema50}</span>
+                           </div>
+                         )}
+                       </div>
+                     )}
                    </div>
                  </div>
-
-                 {/* Volume */}
-                 <div className="border-t border-zinc-800 pt-1.5">
-                   <div className="text-[9px] text-zinc-500 uppercase mb-0.5">Volume</div>
-                   <div className="text-xs font-mono text-zinc-300">
-                     {crosshairData.volume.toLocaleString()}
+               )}
+               
+               {!isDataLoaded && !loading && (
+                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-20">
+                   <div className="w-12 h-12 bg-zinc-900 rounded-full flex items-center justify-center mb-3 border border-zinc-800">
+                      <BarChart2 className="text-zinc-700" size={24} />
                    </div>
+                   <p className="text-xs text-zinc-700 uppercase tracking-widest font-bold">No Data Loaded</p>
                  </div>
+               )}
 
-                 {/* Indicators */}
-                 {Object.keys(crosshairData.indicators).length > 0 && (
-                   <div className="border-t border-zinc-800 pt-1.5 space-y-1">
-                     <div className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider mb-1">Indicators</div>
-                     {crosshairData.indicators.rsi && (
-                       <div className="flex justify-between text-xs">
-                         <span className="text-zinc-400">RSI</span>
-                         <span className="font-mono text-zinc-200">{crosshairData.indicators.rsi}</span>
-                       </div>
-                     )}
-                     {crosshairData.indicators.macd !== undefined && (
-                       <div className="flex justify-between text-xs">
-                         <span className="text-zinc-400">MACD</span>
-                         <span className="font-mono text-zinc-200">{crosshairData.indicators.macd}</span>
-                       </div>
-                     )}
-                     {crosshairData.indicators.macdSignal !== undefined && (
-                       <div className="flex justify-between text-xs">
-                         <span className="text-zinc-400">Signal</span>
-                         <span className="font-mono text-zinc-200">{crosshairData.indicators.macdSignal}</span>
-                       </div>
-                     )}
-                     {crosshairData.indicators.stochK !== undefined && (
-                       <div className="flex justify-between text-xs">
-                         <span className="text-zinc-400">Stoch K</span>
-                         <span className="font-mono text-zinc-200">{crosshairData.indicators.stochK}</span>
-                       </div>
-                     )}
-                     {crosshairData.indicators.stochD !== undefined && (
-                       <div className="flex justify-between text-xs">
-                         <span className="text-zinc-400">Stoch D</span>
-                         <span className="font-mono text-zinc-200">{crosshairData.indicators.stochD}</span>
-                       </div>
-                     )}
-                     {crosshairData.indicators.sma20 !== undefined && (
-                       <div className="flex justify-between text-xs">
-                         <span className="text-zinc-400">SMA(20)</span>
-                         <span className="font-mono text-zinc-200">{crosshairData.indicators.sma20}</span>
-                       </div>
-                     )}
-                     {crosshairData.indicators.sma50 !== undefined && (
-                       <div className="flex justify-between text-xs">
-                         <span className="text-zinc-400">SMA(50)</span>
-                         <span className="font-mono text-zinc-200">{crosshairData.indicators.sma50}</span>
-                       </div>
-                     )}
-                     {crosshairData.indicators.ema20 !== undefined && (
-                       <div className="flex justify-between text-xs">
-                         <span className="text-zinc-400">EMA(20)</span>
-                         <span className="font-mono text-zinc-200">{crosshairData.indicators.ema20}</span>
-                       </div>
-                     )}
-                     {crosshairData.indicators.ema50 !== undefined && (
-                       <div className="flex justify-between text-xs">
-                         <span className="text-zinc-400">EMA(50)</span>
-                         <span className="font-mono text-zinc-200">{crosshairData.indicators.ema50}</span>
-                       </div>
-                     )}
+               {loading && (
+                 <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-30 backdrop-blur-sm">
+                    <div className="flex flex-col items-center gap-3">
+                       <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                       <span className="text-[10px] font-mono text-blue-500 tracking-wider animate-pulse">PROCESSING...</span>
+                    </div>
+                 </div>
+               )}
+               
+               {!isChartEngineReady && (
+                   <div className="absolute inset-0 bg-black flex items-center justify-center z-40 text-zinc-800 text-[10px] font-mono">
+                       INITIALIZING ENGINE...
                    </div>
-                 )}
-               </div>
-             </div>
-           )}
-           
-           {!isDataLoaded && !loading && (
-             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-20">
-               <div className="w-12 h-12 bg-zinc-900 rounded-full flex items-center justify-center mb-3 border border-zinc-800">
-                  <BarChart2 className="text-zinc-700" size={24} />
-               </div>
-               <p className="text-xs text-zinc-700 uppercase tracking-widest font-bold">No Data Loaded</p>
-             </div>
-           )}
-
-           {loading && (
-             <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-30 backdrop-blur-sm">
-                <div className="flex flex-col items-center gap-3">
-                   <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                   <span className="text-[10px] font-mono text-blue-500 tracking-wider animate-pulse">PROCESSING...</span>
-                </div>
-             </div>
-           )}
-           
-           {!isChartEngineReady && (
-               <div className="absolute inset-0 bg-black flex items-center justify-center z-40 text-zinc-800 text-[10px] font-mono">
-                   INITIALIZING ENGINE...
-               </div>
-           )}
-        </div>
+               )}
+            </div>
+          </>
+        ) : (
+          <ReportAnalyzer onBack={() => setCurrentPage('MAIN')} />
+        )}
       </div>
     </div>
   );
