@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, ChevronLeft, BarChart2, TrendingUp, ArrowUp, ArrowDown, Activity, Download, Search, Filter, X, Table, Plus, PieChart, Layers, Trash2, Layout, Check, ChevronDown, Calendar } from 'lucide-react';
 
 const COLORS = {
@@ -619,7 +619,7 @@ const PortfolioAnalyzer = ({ onBack }) => {
                     </div>
 
                     <div className="h-24 w-full opacity-50">
-                      <PortfolioChart strategies={[s]} combined={s.equityCurve} mode="EQUITY" hideLegend />
+                      <PortfolioChart strategies={[s]} combined={s.equityCurve} mode="EQUITY" height={100} minimal={true} />
                     </div>
                   </div>
                 ))}
@@ -632,88 +632,140 @@ const PortfolioAnalyzer = ({ onBack }) => {
   );
 };
 
-const PortfolioChart = ({ strategies, combined, mode, hideLegend }) => {
-  if (!combined || combined.length === 0) return null;
+const PortfolioChart = ({ strategies, combined, mode, height = 350, minimal = false }) => {
+  const chartContainerRef = useRef();
+  const chartRef = useRef();
+  const seriesRef = useRef();
+  const strategySeriesRefs = useRef([]);
 
-  const width = 1000;
-  const height = 300;
-  const padding = 20;
+  useEffect(() => {
+    if (!combined || combined.length === 0 || !window.LightweightCharts) return;
 
-  let minVal = mode === 'DRAWDOWN' ? -1 : 0;
-  let maxVal = mode === 'DRAWDOWN' ? 0 : 1;
-  
-  strategies.forEach(s => {
-    const curve = mode === 'EQUITY' ? s.equityCurve : s.drawdownCurve;
-    curve.forEach(p => {
-      if (p.value < minVal) minVal = p.value;
-      if (p.value > maxVal) maxVal = p.value;
+    const { createChart, CrosshairMode, LineStyle } = window.LightweightCharts;
+
+    const chart = createChart(chartContainerRef.current, {
+      width: chartContainerRef.current.clientWidth,
+      height: height,
+      layout: {
+        background: { type: 'solid', color: 'transparent' },
+        textColor: '#71717a',
+        fontSize: 10,
+        fontFamily: 'JetBrains Mono, monospace',
+      },
+      grid: {
+        vertLines: { color: minimal ? 'transparent' : '#18181b', style: LineStyle.Dashed },
+        horzLines: { color: minimal ? 'transparent' : '#18181b', style: LineStyle.Dashed },
+      },
+      crosshair: {
+        mode: minimal ? CrosshairMode.Hidden : CrosshairMode.Normal,
+        vertLine: {
+          width: 1,
+          color: '#3b82f6',
+          style: LineStyle.Solid,
+          labelBackgroundColor: '#3b82f6',
+        },
+        horzLine: {
+          width: 1,
+          color: '#3b82f6',
+          style: LineStyle.Solid,
+          labelBackgroundColor: '#3b82f6',
+        },
+      },
+      rightPriceScale: {
+        borderColor: '#18181b',
+        autoScale: true,
+        visible: !minimal,
+      },
+      timeScale: {
+        borderColor: '#18181b',
+        timeVisible: true,
+        secondsVisible: false,
+        visible: !minimal,
+      },
+      handleScroll: !minimal,
+      handleScale: !minimal,
     });
-  });
-  
-  combined.forEach(p => {
-    if (p.value < minVal) minVal = p.value;
-    if (p.value > maxVal) maxVal = p.value;
-  });
 
-  const range = maxVal - minVal || 1;
-  const scaleY = (val) => height - padding - ((val - minVal) / range) * (height - 2 * padding);
-  const scaleX = (i, total) => padding + (i / (total - 1)) * (width - 2 * padding);
+    chartRef.current = chart;
 
-  const combinedPoints = combined.map((p, i) => `${scaleX(i, combined.length)},${scaleY(p.value)}`);
-  
-  // For drawdown area, we need to close the path at y=0
-  const areaPoints = mode === 'DRAWDOWN' 
-    ? `${scaleX(0, combined.length)},${scaleY(0)} ${combinedPoints.join(' ')} ${scaleX(combined.length - 1, combined.length)},${scaleY(0)}`
-    : "";
+    // Formatting data for LW Charts (seconds instead of ms)
+    const formattedData = combined.map(p => ({
+      time: Math.floor(p.time / 1000),
+      value: p.value
+    }));
+
+    if (mode === 'EQUITY') {
+      // Main Portfolio Series
+      const mainSeries = chart.addLineSeries({
+        color: '#ffffff',
+        lineWidth: 3,
+        crosshairMarkerVisible: true,
+        priceFormat: { type: 'price', precision: 0, minMove: 1 },
+      });
+      mainSeries.setData(formattedData);
+      seriesRef.current = mainSeries;
+
+      // Individual Strategies (Thin background lines)
+      if (strategies.length > 1) {
+        strategies.forEach((s, idx) => {
+          const sSeries = chart.addLineSeries({
+            color: COLORS.chart[idx % COLORS.chart.length],
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            priceFormat: { type: 'price', precision: 0, minMove: 1 },
+            crosshairMarkerVisible: false,
+            lastValueVisible: false,
+            priceLineVisible: false,
+          });
+          sSeries.setData(s.equityCurve.map(p => ({ time: Math.floor(p.time / 1000), value: p.value })));
+          strategySeriesRefs.current.push(sSeries);
+        });
+      }
+    } else {
+      // Drawdown Area Series
+      const ddSeries = chart.addAreaSeries({
+        lineColor: '#ef4444',
+        topColor: 'rgba(239, 68, 68, 0.4)',
+        bottomColor: 'rgba(239, 68, 68, 0.05)',
+        lineWidth: 2,
+        priceFormat: { type: 'price', precision: 0, minMove: 1 },
+      });
+      ddSeries.setData(formattedData);
+      seriesRef.current = ddSeries;
+    }
+
+    const handleResize = () => {
+      chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.remove();
+    };
+  }, [combined, strategies, mode]);
 
   return (
-    <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="overflow-visible">
-      <defs>
-        <linearGradient id="drawdownGradient" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#ef4444" stopOpacity="0.3" />
-          <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-
-      {/* Grid Lines */}
-      <line x1={padding} y1={scaleY(0)} x2={width-padding} y2={scaleY(0)} stroke="#18181b" strokeWidth="1" strokeDasharray="4 4" />
+    <div className="relative w-full group">
+      <div ref={chartContainerRef} className="w-full" />
       
-      {/* Individual Strategy Curves */}
-      {strategies.length > 1 && strategies.map((s, idx) => {
-        const curve = mode === 'EQUITY' ? s.equityCurve : s.drawdownCurve;
-        const points = curve.map((p, i) => `${scaleX(i, curve.length)},${scaleY(p.value)}`).join(' ');
-        return (
-          <polyline
-            key={s.id}
-            fill="none"
-            stroke={COLORS.chart[idx % COLORS.chart.length]}
-            strokeWidth="1.5"
-            strokeOpacity={mode === 'EQUITY' ? "0.4" : "0.2"}
-            points={points}
-          />
-        );
-      })}
-
-      {/* Drawdown Area */}
-      {mode === 'DRAWDOWN' && (
-        <polygon
-          points={areaPoints}
-          fill="url(#drawdownGradient)"
-          className="animate-in fade-in duration-700"
-        />
-      )}
-
-      {/* Combined Portfolio Curve */}
-      <polyline
-        fill="none"
-        stroke={mode === 'EQUITY' ? "#ffffff" : "#ef4444"}
-        strokeWidth="2.5"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        points={combinedPoints.join(' ')}
-        className="drop-shadow-lg transition-all duration-500"
-      />
-    </svg>
+      {/* Smart Legend / Tooltip Overlay */}
+      <div className="absolute top-4 left-4 z-10 pointer-events-none flex flex-col gap-1 bg-black/60 backdrop-blur-md p-3 rounded-xl border border-white/5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${mode === 'EQUITY' ? 'bg-white' : 'bg-red-500'}`} />
+          <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-widest">
+            Portfolio {mode === 'EQUITY' ? 'Equity' : 'Drawdown'}
+          </span>
+        </div>
+        <div className="text-xl font-mono font-bold text-white tabular-nums">
+          {/* LW Charts manages value display via crosshair, but we could add a custom legend here */}
+          <span className="text-xs text-zinc-500 mr-2">VALUE</span>
+          {combined[combined.length - 1]?.value >= 0 ? '$' : '-$'}
+          {Math.abs(combined[combined.length - 1]?.value || 0).toLocaleString()}
+        </div>
+      </div>
+    </div>
   );
 };
 
