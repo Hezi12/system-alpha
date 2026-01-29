@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+release/
+build/
+
+# Electron
+*.dmg
+*.app
+*.exe
+*.deb
+*.rpm
+*.AppImage
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment (never commit secrets)
+.env
+.env.local
+.env.production.local
+.env.development.local
+
+# Cache
+.cache/
+*.cache
+
+# Python
+backend/venv/
+backend/__pycache__/
+backend/app/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Data files (CSV, JSON data – keep package.json in repo)
+*.csv
+data/
+**/data/*.json
+
+# Temp files
+/tmp/
+*.tmp
+*.bak
