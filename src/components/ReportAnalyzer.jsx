@@ -128,6 +128,8 @@ const PortfolioAnalyzer = ({ onBack }) => {
       let peak = 0;
       let maxDD = 0;
       let wins = 0;
+      let lastPeakTime = s.trades[0]?.exitTime || 0;
+      let maxRecoveryTime = 0;
       
       const curve = s.trades.map(t => {
         const p = t.profit * s.multiplier;
@@ -138,11 +140,23 @@ const PortfolioAnalyzer = ({ onBack }) => {
         } else {
           grossLoss += Math.abs(p);
         }
-        if (cumProfit > peak) peak = cumProfit;
+        
+        if (cumProfit >= peak) {
+          const recoveryTime = t.exitTime - lastPeakTime;
+          if (recoveryTime > maxRecoveryTime) maxRecoveryTime = recoveryTime;
+          peak = cumProfit;
+          lastPeakTime = t.exitTime;
+        }
+
         const dd = peak - cumProfit;
         if (dd > maxDD) maxDD = dd;
         return { time: t.exitTime, value: cumProfit };
       });
+
+      const firstTime = s.trades[0]?.entryTime || s.trades[0]?.exitTime || 0;
+      const lastTime = s.trades[s.trades.length - 1]?.exitTime || 0;
+      const totalDays = Math.max(1, (lastTime - firstTime) / (1000 * 60 * 60 * 24));
+      const monthlyAvg = (cumProfit / totalDays) * 30.44;
 
       return {
         ...s,
@@ -151,7 +165,9 @@ const PortfolioAnalyzer = ({ onBack }) => {
           trades: s.trades.length,
           winRate: s.trades.length > 0 ? (wins / s.trades.length * 100) : 0,
           profitFactor: grossLoss > 0 ? (grossProfit / grossLoss) : (grossProfit > 0 ? 100 : 0),
-          maxDD
+          maxDD,
+          monthlyAvg,
+          maxRecoveryTime: maxRecoveryTime / (1000 * 60 * 60 * 24)
         },
         equityCurve: curve
       };
@@ -174,6 +190,8 @@ const PortfolioAnalyzer = ({ onBack }) => {
     let totalWins = 0;
     let grossProfit = 0;
     let grossLoss = 0;
+    let lastPeakTime = allTrades[0].exitTime;
+    let maxRecoveryTime = 0;
 
     const equityCurve = allTrades.map(t => {
       cumProfit += t.adjustedProfit;
@@ -183,11 +201,23 @@ const PortfolioAnalyzer = ({ onBack }) => {
       } else {
         grossLoss += Math.abs(t.adjustedProfit);
       }
-      if (cumProfit > peak) peak = cumProfit;
+      
+      if (cumProfit >= peak) {
+        const recoveryTime = t.exitTime - lastPeakTime;
+        if (recoveryTime > maxRecoveryTime) maxRecoveryTime = recoveryTime;
+        peak = cumProfit;
+        lastPeakTime = t.exitTime;
+      }
+
       const dd = peak - cumProfit;
       if (dd > maxDD) maxDD = dd;
       return { time: t.exitTime, value: cumProfit };
     });
+
+    const firstTime = allTrades[0].entryTime || allTrades[0].exitTime;
+    const lastTime = allTrades[allTrades.length - 1].exitTime;
+    const totalDays = Math.max(1, (lastTime - firstTime) / (1000 * 60 * 60 * 24));
+    const monthlyAvg = (cumProfit / totalDays) * 30.44;
 
     return {
       netProfit: cumProfit,
@@ -195,6 +225,8 @@ const PortfolioAnalyzer = ({ onBack }) => {
       winRate: (totalWins / allTrades.length * 100),
       profitFactor: grossLoss > 0 ? (grossProfit / grossLoss) : (grossProfit > 0 ? 100 : 0),
       maxDD,
+      monthlyAvg,
+      maxRecoveryTime: maxRecoveryTime / (1000 * 60 * 60 * 24), // in days
       equityCurve,
       strategyCount: activeStrats.length
     };
@@ -308,41 +340,55 @@ const PortfolioAnalyzer = ({ onBack }) => {
             {activeTab === 'PORTFOLIO' ? (
               <>
                 {/* Combined Stats */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
                   <StatCard 
                     label="Portfolio Net Profit" 
                     value={`$${portfolioStats.netProfit.toLocaleString(undefined, {maximumFractionDigits: 0})}`}
                     icon={<TrendingUp size={16} />}
                     color={portfolioStats.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}
-                    subValue="Adjusted by multipliers"
+                    subValue="Total Gain"
+                  />
+                  <StatCard 
+                    label="Monthly Average" 
+                    value={`$${portfolioStats.monthlyAvg.toLocaleString(undefined, {maximumFractionDigits: 0})}`}
+                    icon={<BarChart2 size={16} />}
+                    color="text-blue-400"
+                    subValue="Avg per month"
                   />
                   <StatCard 
                     label="Portfolio PF" 
                     value={portfolioStats.profitFactor.toFixed(2)}
                     icon={<Activity size={16} />}
-                    color="text-blue-400"
-                    subValue="Overall risk/reward"
-                  />
-                  <StatCard 
-                    label="Aggregate Win Rate" 
-                    value={`${portfolioStats.winRate.toFixed(1)}%`}
-                    icon={<PieChart size={16} />}
                     color="text-zinc-300"
-                    subValue={`${portfolioStats.totalTrades} total trades`}
+                    subValue="Profit Factor"
                   />
                   <StatCard 
                     label="Portfolio Max DD" 
                     value={`$${portfolioStats.maxDD.toLocaleString(undefined, {maximumFractionDigits: 0})}`}
                     icon={<ArrowDown size={16} />}
                     color="text-red-500"
-                    subValue="Combined equity dip"
+                    subValue="Worst Drawdown"
+                  />
+                  <StatCard 
+                    label="Recovery Time" 
+                    value={`${portfolioStats.maxRecoveryTime.toFixed(0)} Days`}
+                    icon={<TrendingUp size={16} className="rotate-90" />}
+                    color="text-amber-500"
+                    subValue="Max Drawdown Duration"
+                  />
+                  <StatCard 
+                    label="Aggregate Win Rate" 
+                    value={`${portfolioStats.winRate.toFixed(1)}%`}
+                    icon={<PieChart size={16} />}
+                    color="text-zinc-300"
+                    subValue={`${portfolioStats.totalTrades} trades`}
                   />
                   <StatCard 
                     label="Active Strategies" 
                     value={portfolioStats.strategyCount}
                     icon={<Layers size={16} />}
                     color="text-blue-500"
-                    subValue={`${strategies.length} total loaded`}
+                    subValue={`${strategies.length} loaded`}
                   />
                 </div>
 
@@ -429,20 +475,24 @@ const PortfolioAnalyzer = ({ onBack }) => {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       <div className="space-y-1">
                         <div className="text-[9px] text-zinc-600 uppercase font-bold tracking-wider">Net Profit</div>
-                        <div className={`text-base font-mono font-bold ${s.stats.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                        <div className={`text-sm font-mono font-bold ${s.stats.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                           ${s.stats.netProfit.toLocaleString(undefined, {maximumFractionDigits: 0})}
                         </div>
                       </div>
                       <div className="space-y-1">
-                        <div className="text-[9px] text-zinc-600 uppercase font-bold tracking-wider">Profit Factor</div>
-                        <div className="text-base font-mono font-bold text-zinc-300">{s.stats.profitFactor.toFixed(2)}</div>
+                        <div className="text-[9px] text-zinc-600 uppercase font-bold tracking-wider">Monthly Avg</div>
+                        <div className="text-sm font-mono font-bold text-blue-400">${s.stats.monthlyAvg.toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
                       </div>
                       <div className="space-y-1">
                         <div className="text-[9px] text-zinc-600 uppercase font-bold tracking-wider">Max DD</div>
-                        <div className="text-base font-mono font-bold text-red-500">${s.stats.maxDD.toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+                        <div className="text-sm font-mono font-bold text-red-500">${s.stats.maxDD.toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-[9px] text-zinc-600 uppercase font-bold tracking-wider">Recovery</div>
+                        <div className="text-sm font-mono font-bold text-amber-500">{s.stats.maxRecoveryTime.toFixed(0)}d</div>
                       </div>
                     </div>
 
