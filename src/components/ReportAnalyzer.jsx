@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Upload, FileText, ChevronLeft, BarChart2, TrendingUp, ArrowUp, ArrowDown, Activity, Download, Search, Filter, X, Table } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import { Upload, FileText, ChevronLeft, BarChart2, TrendingUp, ArrowUp, ArrowDown, Activity, Download, Search, Filter, X, Table, Plus, PieChart, Layers, Trash2, Layout } from 'lucide-react';
 
 const COLORS = {
   bg: '#000000',
@@ -11,13 +10,14 @@ const COLORS = {
   blue: '#3b82f6',
   green: '#22c55e',
   red: '#ef4444',
-  amber: '#f59e0b'
+  amber: '#f59e0b',
+  chart: ['#3b82f6', '#a855f7', '#ec4899', '#f97316', '#10b981', '#06b6d4']
 };
 
-const ReportAnalyzer = ({ onBack }) => {
-  const [data, setData] = useState(null);
+const PortfolioAnalyzer = ({ onBack }) => {
+  const [strategies, setStrategies] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [activeTab, setActiveTab] = useState('PORTFOLIO'); // 'PORTFOLIO' or 'INDIVIDUAL'
 
   const parseCurrency = (val) => {
     if (typeof val === 'number') return val;
@@ -29,119 +29,154 @@ const ReportAnalyzer = ({ onBack }) => {
     return parseFloat(str) || 0;
   };
 
-  const excelDateToJS = (serial) => {
-    if (typeof serial !== 'number') return String(serial);
-    const utc_days  = Math.floor(serial - 25569);
-    const utc_value = utc_days * 86400;
-    const date_info = new Date(utc_value * 1000);
-
-    const fractional_day = serial - Math.floor(serial) + 0.0000001;
-    let total_seconds = Math.floor(86400 * fractional_day);
-
-    const seconds = total_seconds % 60;
-    total_seconds -= seconds;
-
-    const hours = Math.floor(total_seconds / (60 * 60));
-    const minutes = Math.floor(total_seconds / 60) % 60;
-
-    return new Date(date_info.getFullYear(), date_info.getMonth(), date_info.getDate(), hours, minutes, seconds).toLocaleString('he-IL', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+  const parseDate = (dateStr) => {
+    if (!dateStr) return 0;
+    // NinjaTrader CSV format: M/D/YYYY H:MM:SS AM/PM
+    const date = new Date(dateStr);
+    return date.getTime();
   };
 
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const handleFileUpload = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
 
     setLoading(true);
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const bstr = evt.target.result;
-        const wb = XLSX.read(bstr, { type: 'binary', cellDates: false });
-        const wsname = wb.SheetNames[0];
-        const ws = wb.Sheets[wsname];
-        const rawJson = XLSX.utils.sheet_to_json(ws, { defval: "" });
-        
-        // נרמול הנתונים לפי התמונה של המשתמש
-        const normalizedData = rawJson.map(row => {
-          const entryTime = row['Entry time'] || row['Entry Time'] || "";
-          const exitTime = row['Exit time'] || row['Exit Time'] || "";
-          const profit = parseCurrency(row['Profit'] || 0);
-          
-          return {
-            ...row,
-            'Entry time': typeof entryTime === 'number' ? excelDateToJS(entryTime) : entryTime,
-            'Exit time': typeof exitTime === 'number' ? excelDateToJS(exitTime) : exitTime,
-            'Profit': profit,
-            'Market pos.': row['Market pos.'] || row['Market Pos.'] || "",
-            'Cumulative': parseCurrency(row['Cum. net profit'] || row['Cumulative Profit'] || 0)
-          };
-        });
+    
+    const newStrategies = [];
 
-        setData(normalizedData);
-      } catch (error) {
-        console.error("Error reading file:", error);
-        alert("שגיאה בקריאת הקובץ. וודא שזהו קובץ Excel או CSV תקין.");
-      } finally {
-        setLoading(false);
+    for (const file of files) {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) continue;
+
+      const sep = lines[0].includes('\t') ? '\t' : ',';
+      const headers = lines[0].split(sep).map(h => h.trim().replace(/^"|"$/g, ''));
+      
+      const findCol = (hNames) => {
+        for (const name of hNames) {
+          const idx = headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+          if (idx !== -1) return idx;
+        }
+        return -1;
+      };
+
+      const idx = {
+        profit: findCol(['Profit']),
+        entryTime: findCol(['Entry time', 'EntryTime']),
+        exitTime: findCol(['Exit time', 'ExitTime']),
+        marketPos: findCol(['Market pos.', 'MarketPos', 'Market pos']),
+        strategy: findCol(['Strategy']),
+        tradeNum: findCol(['Trade number', 'TradeNumber']),
+        entryPrice: findCol(['Entry price', 'EntryPrice']),
+        exitPrice: findCol(['Exit price', 'ExitPrice']),
+      };
+
+      const trades = [];
+      for (let i = 1; i < lines.length; i++) {
+        const vals = lines[i].split(sep).map(v => v.trim().replace(/^"|"$/g, ''));
+        if (vals.length < headers.length) continue;
+
+        const profit = parseCurrency(vals[idx.profit]);
+        const entryTime = parseDate(vals[idx.entryTime]);
+        const exitTime = parseDate(vals[idx.exitTime]);
+
+        trades.push({
+          tradeNum: vals[idx.tradeNum],
+          strategy: vals[idx.strategy] || file.name.replace('.csv', ''),
+          marketPos: vals[idx.marketPos],
+          entryTime,
+          exitTime,
+          entryPrice: vals[idx.entryPrice],
+          exitPrice: vals[idx.exitPrice],
+          profit
+        });
       }
-    };
-    reader.readAsBinaryString(file);
+
+      // Sort trades by exit time
+      trades.sort((a, b) => a.exitTime - b.exitTime);
+
+      // Calculate Stats
+      let cumProfit = 0;
+      let grossProfit = 0;
+      let grossLoss = 0;
+      let peak = 0;
+      let maxDD = 0;
+      let wins = 0;
+      const equityCurve = trades.map(t => {
+        cumProfit += t.profit;
+        if (t.profit > 0) {
+          wins++;
+          grossProfit += t.profit;
+        } else {
+          grossLoss += Math.abs(t.profit);
+        }
+        if (cumProfit > peak) peak = cumProfit;
+        const dd = peak - cumProfit;
+        if (dd > maxDD) maxDD = dd;
+        return { time: t.exitTime, value: cumProfit };
+      });
+
+      newStrategies.push({
+        id: Math.random().toString(36).substr(2, 9),
+        name: trades[0]?.strategy || file.name.replace('.csv', ''),
+        fileName: file.name,
+        trades,
+        stats: {
+          netProfit: cumProfit,
+          trades: trades.length,
+          winRate: trades.length > 0 ? (wins / trades.length * 100) : 0,
+          profitFactor: grossLoss > 0 ? (grossProfit / grossLoss) : (grossProfit > 0 ? 100 : 0),
+          maxDD
+        },
+        equityCurve
+      });
+    }
+
+    setStrategies(prev => [...prev, ...newStrategies]);
+    setLoading(false);
   };
 
-  const stats = useMemo(() => {
-    if (!data || data.length === 0) return null;
+  const portfolioStats = useMemo(() => {
+    if (strategies.length === 0) return null;
 
-    let totalNetProfit = 0;
-    let winningTrades = 0;
-    let totalTrades = data.length;
+    // Combine all trades and sort by time
+    const allTrades = strategies.flatMap(s => s.trades).sort((a, b) => a.exitTime - b.exitTime);
+    
+    let cumProfit = 0;
+    let peak = 0;
+    let maxDD = 0;
+    let totalWins = 0;
     let grossProfit = 0;
     let grossLoss = 0;
-    let maxDD = 0;
-    let peak = 0;
-    let currentEquity = 0;
 
-    data.forEach(row => {
-      const p = row['Profit'];
-      totalNetProfit += p;
-      if (p > 0) {
-        winningTrades++;
-        grossProfit += p;
+    const equityCurve = allTrades.map(t => {
+      cumProfit += t.profit;
+      if (t.profit > 0) {
+        totalWins++;
+        grossProfit += t.profit;
       } else {
-        grossLoss += Math.abs(p);
+        grossLoss += Math.abs(t.profit);
       }
-
-      currentEquity += p;
-      if (currentEquity > peak) peak = currentEquity;
-      const dd = peak - currentEquity;
+      if (cumProfit > peak) peak = cumProfit;
+      const dd = peak - cumProfit;
       if (dd > maxDD) maxDD = dd;
+      return { time: t.exitTime, value: cumProfit };
     });
 
     return {
-      netProfit: totalNetProfit,
-      trades: totalTrades,
-      winRate: (winningTrades / totalTrades * 100),
+      netProfit: cumProfit,
+      totalTrades: allTrades.length,
+      winRate: (totalWins / allTrades.length * 100),
       profitFactor: grossLoss > 0 ? (grossProfit / grossLoss) : (grossProfit > 0 ? 100 : 0),
-      maxDD: maxDD,
-      rowCount: data.length
+      maxDD,
+      equityCurve,
+      strategyCount: strategies.length
     };
-  }, [data]);
+  }, [strategies]);
 
-  const filteredData = useMemo(() => {
-    if (!data) return [];
-    if (!searchTerm) return data;
-    
-    return data.filter(row => 
-      Object.values(row).some(val => 
-        String(val).toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    );
-  }, [data, searchTerm]);
+  const removeStrategy = (id) => {
+    setStrategies(prev => prev.filter(s => s.id !== id));
+  };
 
   return (
     <div className="flex-1 flex flex-col bg-black overflow-hidden animate-in fade-in duration-500">
@@ -155,161 +190,271 @@ const ReportAnalyzer = ({ onBack }) => {
             <ChevronLeft size={20} />
           </button>
           <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-blue-500/10 rounded-lg">
-              <FileText className="text-blue-500" size={18} />
+            <div className="p-1.5 bg-purple-500/10 rounded-lg">
+              <Layers className="text-purple-500" size={18} />
             </div>
-            <h2 className="text-sm font-bold tracking-tight text-zinc-100 uppercase">NinjaTrader <span className="text-blue-500">Grid Analyzer</span></h2>
+            <h2 className="text-sm font-bold tracking-tight text-zinc-100 uppercase">Portfolio <span className="text-purple-500">Strategy Manager</span></h2>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          {data && (
-            <div className="relative">
-              <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500" size={14} />
-              <input 
-                type="text"
-                placeholder="חפש בתוצאות..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="bg-zinc-900/50 border border-zinc-800 text-xs rounded-full pr-9 pl-4 py-1.5 focus:border-blue-500/50 outline-none w-64 transition-all text-right"
-              />
-            </div>
-          )}
+        <div className="flex items-center gap-4">
+          <div className="flex bg-zinc-900/50 p-1 rounded-lg border border-zinc-800">
+            <button 
+              onClick={() => setActiveTab('PORTFOLIO')}
+              className={`px-4 py-1 text-[10px] font-bold rounded-md transition-all ${activeTab === 'PORTFOLIO' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              PORTFOLIO VIEW
+            </button>
+            <button 
+              onClick={() => setActiveTab('INDIVIDUAL')}
+              className={`px-4 py-1 text-[10px] font-bold rounded-md transition-all ${activeTab === 'INDIVIDUAL' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              STRATEGIES ({strategies.length})
+            </button>
+          </div>
+
           <div className="relative group">
             <input 
               type="file" 
-              accept=".xlsx,.xls,.csv" 
+              accept=".csv" 
+              multiple 
               onChange={handleFileUpload} 
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
             />
-            <button className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold rounded-full transition-all shadow-lg shadow-blue-900/20">
-              <Upload size={14} />
-              {data ? 'החלף קובץ' : 'טען דוח Grid'}
+            <button className="flex items-center gap-2 px-4 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold rounded-full transition-all shadow-lg shadow-purple-900/20">
+              <Plus size={14} />
+              Add Strategies
             </button>
           </div>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-8 space-y-8">
-        {!data ? (
-          <div className="h-full flex flex-col items-center justify-center space-y-6 opacity-60">
-            <div className="w-24 h-24 rounded-full bg-zinc-900/50 border border-zinc-800 flex items-center justify-center animate-pulse">
-              <Table size={40} className="text-zinc-700" />
+        {strategies.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center space-y-6">
+            <div className="w-24 h-24 rounded-full bg-zinc-900/50 border border-zinc-800 flex items-center justify-center">
+              <Layers size={40} className="text-zinc-700" />
             </div>
             <div className="text-center space-y-2">
-              <h3 className="text-zinc-300 font-medium">אין נתונים להצגה</h3>
+              <h3 className="text-zinc-300 font-medium">המערכת מוכנה לניתוח התיק שלך</h3>
               <p className="text-zinc-500 text-xs max-w-xs leading-relaxed">
-                העלה קובץ Excel או CSV שיוצא מה-Strategy Analyzer של NinjaTrader (Grid View) כדי לראות ניתוח מעמיק.
+                העלה מספר קבצי CSV של NinjaTrader כדי לראות איך האסטרטגיות שלך עובדות יחד, מה ה-Drawdown המשולב ואיך הן מחפות אחת על השנייה.
               </p>
             </div>
           </div>
-        ) : (
-          <>
-            {/* Stats Overview */}
+        ) : activeTab === 'PORTFOLIO' ? (
+          <div className="space-y-8 max-w-7xl mx-auto">
+            {/* Combined Stats */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
               <StatCard 
-                label="Total Net Profit" 
-                value={`$${stats.netProfit.toLocaleString(undefined, {maximumFractionDigits: 0})}`}
+                label="Portfolio Net Profit" 
+                value={`$${portfolioStats.netProfit.toLocaleString(undefined, {maximumFractionDigits: 0})}`}
                 icon={<TrendingUp size={16} />}
-                color={stats.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}
-                subValue={`${stats.rowCount} iterations analysed`}
+                color={portfolioStats.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}
+                subValue="Cumulative sum of all"
               />
               <StatCard 
-                label="Profit Factor" 
-                value={stats.profitFactor.toFixed(2)}
+                label="Combined PF" 
+                value={portfolioStats.profitFactor.toFixed(2)}
                 icon={<Activity size={16} />}
-                color="text-blue-400"
-                subValue="Average across all"
+                color="text-purple-400"
+                subValue="Overall risk/reward"
               />
               <StatCard 
-                label="Win Rate" 
-                value={`${stats.winRate.toFixed(1)}%`}
-                icon={<BarChart2 size={16} />}
-                color={stats.winRate >= 50 ? 'text-green-500' : 'text-zinc-400'}
-                subValue="Weighted average"
+                label="Aggregate Win Rate" 
+                value={`${portfolioStats.winRate.toFixed(1)}%`}
+                icon={<PieChart size={16} />}
+                color="text-zinc-300"
+                subValue={`${portfolioStats.totalTrades} total trades`}
               />
               <StatCard 
-                label="Max Drawdown" 
-                value={`$${Math.abs(stats.maxDD).toLocaleString(undefined, {maximumFractionDigits: 0})}`}
+                label="Portfolio Max DD" 
+                value={`$${portfolioStats.maxDD.toLocaleString(undefined, {maximumFractionDigits: 0})}`}
                 icon={<ArrowDown size={16} />}
                 color="text-red-500"
-                subValue="Peak to valley"
+                subValue="Worst combined dip"
               />
               <StatCard 
-                label="Total Trades" 
-                value={stats.trades.toLocaleString()}
-                icon={<FileText size={16} />}
-                color="text-zinc-300"
-                subValue="Execution count"
+                label="Strategies" 
+                value={portfolioStats.strategyCount}
+                icon={<Layers size={16} />}
+                color="text-purple-500"
+                subValue="Parallel active"
               />
             </div>
 
-            {/* Table Section */}
-            <div className="bg-zinc-950/50 border border-zinc-900 rounded-xl overflow-hidden shadow-2xl">
-              <div className="px-6 py-4 border-b border-zinc-900 flex items-center justify-between">
-                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                  <Table size={12} />
-                  Detailed Iterations ({filteredData.length})
-                </h3>
-                <div className="flex gap-2">
-                  <button className="p-1.5 hover:bg-zinc-900 rounded text-zinc-500 hover:text-zinc-300 transition-all">
-                    <Filter size={14} />
-                  </button>
-                  <button className="p-1.5 hover:bg-zinc-900 rounded text-zinc-500 hover:text-zinc-300 transition-all">
-                    <Download size={14} />
-                  </button>
+            {/* Combined Equity Curve */}
+            <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-1 h-4 bg-purple-500 rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400">Combined Equity Curve</h3>
+                </div>
+                <div className="flex items-center gap-4">
+                  {strategies.map((s, i) => (
+                    <div key={s.id} className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full" style={{backgroundColor: COLORS.chart[i % COLORS.chart.length]}}></div>
+                      <span className="text-[9px] text-zinc-500 uppercase">{s.name}</span>
+                    </div>
+                  ))}
+                  <div className="flex items-center gap-2 border-l border-zinc-800 pl-4">
+                    <div className="w-3 h-0.5 bg-white"></div>
+                    <span className="text-[9px] text-white uppercase font-bold">Total Portfolio</span>
+                  </div>
                 </div>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-right text-[11px] border-collapse">
-                  <thead>
-                    <tr className="bg-zinc-900/20 text-zinc-500 uppercase tracking-wider font-bold border-b border-zinc-900">
-                      <th className="px-4 py-3 font-semibold">Trade #</th>
-                      <th className="px-4 py-3 font-semibold">Strategy</th>
-                      <th className="px-4 py-3 font-semibold text-center">Pos</th>
-                      <th className="px-4 py-3 font-semibold">Entry Time</th>
-                      <th className="px-4 py-3 font-semibold">Exit Time</th>
-                      <th className="px-4 py-3 font-semibold">Entry Price</th>
-                      <th className="px-4 py-3 font-semibold">Exit Price</th>
-                      <th className="px-4 py-3 font-semibold text-left">Profit</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredData.slice(0, 500).map((row, i) => {
-                      const p = row['Profit'];
-                      const isLong = (row['Market pos.'] || "").toLowerCase().includes('long');
-                      return (
-                        <tr key={i} className="border-b border-zinc-900/50 hover:bg-blue-500/5 transition-colors group">
-                          <td className="px-4 py-2.5 font-mono text-zinc-500">{row['Trade number'] || i + 1}</td>
-                          <td className="px-4 py-2.5 font-medium text-zinc-300">{row['Strategy']}</td>
-                          <td className="px-4 py-2.5 text-center">
-                            <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${isLong ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
-                              {row['Market pos.']}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5 font-mono text-zinc-400">{row['Entry time']}</td>
-                          <td className="px-4 py-2.5 font-mono text-zinc-400">{row['Exit time']}</td>
-                          <td className="px-4 py-2.5 font-mono text-zinc-300">{row['Entry price']}</td>
-                          <td className="px-4 py-2.5 font-mono text-zinc-300">{row['Exit price']}</td>
-                          <td className={`px-4 py-2.5 font-mono font-bold text-left ${p >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                            {p >= 0 ? `$${p.toLocaleString()}` : `-$${Math.abs(p).toLocaleString()}`}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                {filteredData.length > 500 && (
-                  <div className="p-4 text-center text-zinc-600 text-[10px] uppercase tracking-widest border-t border-zinc-900">
-                    Showing first 500 results out of {filteredData.length}
-                  </div>
-                )}
+              
+              <div className="h-80 w-full">
+                <EquityChart strategies={strategies} combined={portfolioStats.equityCurve} />
               </div>
             </div>
-          </>
+
+            {/* Strategy Comparison Table */}
+            <div className="bg-zinc-950/50 border border-zinc-900 rounded-xl overflow-hidden">
+              <div className="px-6 py-4 border-b border-zinc-900">
+                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Strategy Comparison</h3>
+              </div>
+              <table className="w-full text-right text-[11px]">
+                <thead>
+                  <tr className="text-zinc-500 uppercase font-bold border-b border-zinc-900">
+                    <th className="px-6 py-3">Strategy Name</th>
+                    <th className="px-6 py-3">Net Profit</th>
+                    <th className="px-6 py-3">Win %</th>
+                    <th className="px-6 py-3">Profit Factor</th>
+                    <th className="px-6 py-3">Max Drawdown</th>
+                    <th className="px-6 py-3">Trades</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {strategies.map((s, i) => (
+                    <tr key={s.id} className="border-b border-zinc-900/50 hover:bg-zinc-900/30 transition-colors">
+                      <td className="px-6 py-4 flex items-center gap-3">
+                        <div className="w-2 h-2 rounded-full" style={{backgroundColor: COLORS.chart[i % COLORS.chart.length]}}></div>
+                        <span className="font-bold text-zinc-200">{s.name}</span>
+                      </td>
+                      <td className={`px-6 py-4 font-mono ${s.stats.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                        ${s.stats.netProfit.toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 font-mono text-zinc-400">{s.stats.winRate.toFixed(1)}%</td>
+                      <td className="px-6 py-4 font-mono text-purple-400">{s.stats.profitFactor.toFixed(2)}</td>
+                      <td className="px-6 py-4 font-mono text-red-500">${s.stats.maxDD.toLocaleString()}</td>
+                      <td className="px-6 py-4 font-mono text-zinc-500">{s.stats.trades}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-7xl mx-auto">
+            {strategies.map((s, i) => (
+              <div key={s.id} className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 space-y-6 relative group">
+                <button 
+                  onClick={() => removeStrategy(s.id)}
+                  className="absolute top-4 right-4 p-2 text-zinc-700 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
+                >
+                  <Trash2 size={16} />
+                </button>
+                
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-zinc-900 flex items-center justify-center border border-zinc-800">
+                    <Activity className="text-zinc-400" size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-zinc-100">{s.name}</h3>
+                    <p className="text-[10px] text-zinc-600 font-mono">{s.fileName}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-1">
+                    <div className="text-[9px] text-zinc-600 uppercase font-bold tracking-wider">Net Profit</div>
+                    <div className={`text-base font-mono font-bold ${s.stats.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                      ${s.stats.netProfit.toLocaleString(undefined, {maximumFractionDigits: 0})}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-[9px] text-zinc-600 uppercase font-bold tracking-wider">Profit Factor</div>
+                    <div className="text-base font-mono font-bold text-zinc-300">{s.stats.profitFactor.toFixed(2)}</div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-[9px] text-zinc-600 uppercase font-bold tracking-wider">Max DD</div>
+                    <div className="text-base font-mono font-bold text-red-500">${s.stats.maxDD.toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+                  </div>
+                </div>
+
+                <div className="h-24 w-full opacity-50">
+                  <EquityChart strategies={[s]} combined={s.equityCurve} hideLegend />
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>
+  );
+};
+
+const EquityChart = ({ strategies, combined, hideLegend }) => {
+  if (!combined || combined.length === 0) return null;
+
+  // Simple SVG Line Chart implementation
+  const width = 1000;
+  const height = 300;
+  const padding = 20;
+
+  // Find min/max values for scaling
+  let minVal = 0;
+  let maxVal = 0;
+  
+  // Also include individual strategy curves in scaling
+  strategies.forEach(s => {
+    s.equityCurve.forEach(p => {
+      if (p.value < minVal) minVal = p.value;
+      if (p.value > maxVal) maxVal = p.value;
+    });
+  });
+  
+  combined.forEach(p => {
+    if (p.value < minVal) minVal = p.value;
+    if (p.value > maxVal) maxVal = p.value;
+  });
+
+  const range = maxVal - minVal || 1;
+  const scaleY = (val) => height - padding - ((val - minVal) / range) * (height - 2 * padding);
+  const scaleX = (i, total) => padding + (i / (total - 1)) * (width - 2 * padding);
+
+  return (
+    <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="overflow-visible">
+      {/* Grid Lines */}
+      <line x1={padding} y1={scaleY(0)} x2={width-padding} y2={scaleY(0)} stroke="#18181b" strokeWidth="1" strokeDasharray="4 4" />
+      
+      {/* Individual Strategy Curves */}
+      {strategies.length > 1 && strategies.map((s, idx) => {
+        const points = s.equityCurve.map((p, i) => `${scaleX(i, s.equityCurve.length)},${scaleY(p.value)}`).join(' ');
+        return (
+          <polyline
+            key={s.id}
+            fill="none"
+            stroke={COLORS.chart[idx % COLORS.chart.length]}
+            strokeWidth="1.5"
+            strokeOpacity="0.4"
+            points={points}
+          />
+        );
+      })}
+
+      {/* Combined Portfolio Curve */}
+      <polyline
+        fill="none"
+        stroke="#ffffff"
+        strokeWidth="2.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        points={combined.map((p, i) => `${scaleX(i, combined.length)},${scaleY(p.value)}`).join(' ')}
+        className="drop-shadow-lg"
+      />
+    </svg>
   );
 };
 
@@ -329,4 +474,4 @@ const StatCard = ({ label, value, icon, color, subValue }) => (
   </div>
 );
 
-export default ReportAnalyzer;
+export default PortfolioAnalyzer;
