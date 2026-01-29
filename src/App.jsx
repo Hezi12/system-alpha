@@ -1,4 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import * as LightweightCharts from 'lightweight-charts';
+if (typeof window !== 'undefined') {
+  window.LightweightCharts = LightweightCharts;
+}
 import { Upload, Activity, ChevronLeft, ChevronRight, BarChart2, Clock, Calendar, Filter, FileCheck, Play, TrendingUp, Hash, DollarSign, X, Table, ArrowUp, ArrowDown, CalendarRange, ArrowDownRight, Download, ChevronDown, Plus, Minus, ZoomIn, BarChart3, Save, FolderOpen, Trash2, ToggleLeft, ToggleRight, Power, PowerOff, Eye, EyeOff, Sparkles, RotateCcw, LayoutDashboard, FileText } from 'lucide-react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { CONDITIONS, CATEGORIES, getConditionById } from './conditions';

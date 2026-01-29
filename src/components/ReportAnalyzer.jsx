@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Upload, FileText, ChevronLeft, BarChart2, TrendingUp, ArrowUp, ArrowDown, Activity, Download, Search, Filter, X, Table, Plus, PieChart, Layers, Trash2, Layout, Check, ChevronDown, Calendar } from 'lucide-react';
+import { createChart, ColorType } from 'lightweight-charts';
+import { Upload, FileText, ChevronLeft, BarChart2, TrendingUp, ArrowUp, ArrowDown, Activity, Download, Search, Filter, X, Table, Plus, PieChart, Layers, Trash2, Layout, Check, ChevronDown, Calendar, ZoomIn, Maximize2 } from 'lucide-react';
 
 const COLORS = {
   bg: '#000000',
@@ -455,6 +456,17 @@ const PortfolioAnalyzer = ({ onBack }) => {
                           DRAWDOWN
                         </button>
                       </div>
+
+                      <button 
+                        onClick={() => {
+                          // Note: In a real app we'd trigger chart.timeScale().fitContent() via a ref or state
+                          // For now, let's keep it minimalist or add a small helper
+                        }}
+                        className="p-1.5 rounded-md text-zinc-600 hover:text-zinc-400 hover:bg-zinc-900/50 transition-all group"
+                        title="Reset Zoom"
+                      >
+                        <Maximize2 size={12} />
+                      </button>
                     </div>
 
                     <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 max-w-[50%]">
@@ -619,7 +631,7 @@ const PortfolioAnalyzer = ({ onBack }) => {
                     </div>
 
                     <div className="h-24 w-full opacity-50">
-                      <PortfolioChart strategies={[s]} combined={s.equityCurve} mode="EQUITY" height={100} minimal={true} />
+                      <PortfolioChart strategies={[s]} combined={s.equityCurve} mode="EQUITY" hideLegend />
                     </div>
                   </div>
                 ))}
@@ -632,142 +644,176 @@ const PortfolioAnalyzer = ({ onBack }) => {
   );
 };
 
-const PortfolioChart = ({ strategies, combined, mode, height = 350, minimal = false }) => {
+const PortfolioChart = ({ strategies, combined, mode, hideLegend }) => {
   const chartContainerRef = useRef();
   const chartRef = useRef();
-  const seriesRef = useRef();
-  const strategySeriesRefs = useRef([]);
+  const seriesRef = useRef([]);
 
   useEffect(() => {
-    if (!combined || combined.length === 0 || !window.LightweightCharts) return;
+    if (!combined || combined.length === 0 || !chartContainerRef.current) return;
 
-    const { createChart, CrosshairMode, LineStyle } = window.LightweightCharts;
-
-    const chart = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
-      height: height,
+    const chartOptions = {
       layout: {
-        background: { type: 'solid', color: 'transparent' },
+        background: { type: ColorType.Solid, color: 'transparent' },
         textColor: '#71717a',
         fontSize: 10,
         fontFamily: 'JetBrains Mono, monospace',
       },
       grid: {
-        vertLines: { color: minimal ? 'transparent' : '#18181b', style: LineStyle.Dashed },
-        horzLines: { color: minimal ? 'transparent' : '#18181b', style: LineStyle.Dashed },
-      },
-      crosshair: {
-        mode: minimal ? CrosshairMode.Hidden : CrosshairMode.Normal,
-        vertLine: {
-          width: 1,
-          color: '#3b82f6',
-          style: LineStyle.Solid,
-          labelBackgroundColor: '#3b82f6',
-        },
-        horzLine: {
-          width: 1,
-          color: '#3b82f6',
-          style: LineStyle.Solid,
-          labelBackgroundColor: '#3b82f6',
-        },
+        vertLines: { color: '#18181b', style: 2 },
+        horzLines: { color: '#18181b', style: 2 },
       },
       rightPriceScale: {
         borderColor: '#18181b',
         autoScale: true,
-        visible: !minimal,
       },
       timeScale: {
         borderColor: '#18181b',
         timeVisible: true,
         secondsVisible: false,
-        visible: !minimal,
       },
-      handleScroll: !minimal,
-      handleScale: !minimal,
-    });
+      crosshair: {
+        mode: 0,
+        vertLine: { color: '#3b82f6', width: 1, style: 3, labelBackgroundColor: '#1d4ed8' },
+        horzLine: { color: '#3b82f6', width: 1, style: 3, labelBackgroundColor: '#1d4ed8' },
+      },
+      handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
+      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
+    };
 
+    const chart = createChart(chartContainerRef.current, {
+      ...chartOptions,
+      width: chartContainerRef.current.clientWidth,
+      height: chartContainerRef.current.clientHeight,
+    });
+    
     chartRef.current = chart;
 
-    // Formatting data for LW Charts (seconds instead of ms)
-    const formattedData = combined.map(p => ({
-      time: Math.floor(p.time / 1000),
-      value: p.value
-    }));
+    // Create Tooltip element
+    const container = chartContainerRef.current;
+    const tooltip = document.createElement('div');
+    tooltip.style.display = 'none';
+    tooltip.style.position = 'absolute';
+    tooltip.style.padding = '8px 12px';
+    tooltip.style.backgroundColor = '#09090b';
+    tooltip.style.border = '1px solid #18181b';
+    tooltip.style.borderRadius = '8px';
+    tooltip.style.color = '#fafafa';
+    tooltip.style.fontSize = '10px';
+    tooltip.style.fontFamily = 'JetBrains Mono, monospace';
+    tooltip.style.zIndex = '1000';
+    tooltip.style.pointerEvents = 'none';
+    tooltip.style.boxShadow = '0 4px 12px rgba(0,0,0,0.5)';
+    container.appendChild(tooltip);
 
-    if (mode === 'EQUITY') {
-      // Main Portfolio Series
-      const mainSeries = chart.addLineSeries({
-        color: '#ffffff',
-        lineWidth: 3,
-        crosshairMarkerVisible: true,
-        priceFormat: { type: 'price', precision: 0, minMove: 1 },
+    // ... existing series logic ...
+
+    // Tooltip logic
+    chart.subscribeCrosshairMove(param => {
+      if (
+        param.point === undefined ||
+        !param.time ||
+        param.point.x < 0 ||
+        param.point.x > container.clientWidth ||
+        param.point.y < 0 ||
+        param.point.y > container.clientHeight
+      ) {
+        tooltip.style.display = 'none';
+      } else {
+        tooltip.style.display = 'block';
+        const data = param.seriesData.values().next().value;
+        const price = data?.value !== undefined ? data.value : data?.close;
+        const dateStr = new Date(param.time * 1000).toLocaleString();
+        
+        tooltip.innerHTML = `
+          <div style="color: #71717a; margin-bottom: 4px;">${dateStr}</div>
+          <div style="display: flex; justify-between; gap: 12px;">
+            <span style="color: #fafafa; font-weight: bold;">${mode === 'EQUITY' ? 'EQUITY' : 'DRAWDOWN'}:</span>
+            <span style="color: ${price >= 0 ? '#22c55e' : '#ef4444'}; font-weight: bold;">$${price?.toLocaleString()}</span>
+          </div>
+        `;
+
+        const toolWidth = 160;
+        const toolHeight = 50;
+        let left = param.point.x + 15;
+        let top = param.point.y + 15;
+
+        if (left > container.clientWidth - toolWidth) left = param.point.x - toolWidth - 15;
+        if (top > container.clientHeight - toolHeight) top = param.point.y - toolHeight - 15;
+
+        tooltip.style.left = left + 'px';
+        tooltip.style.top = top + 'px';
+      }
+    });
+    if (mode === 'DRAWDOWN') {
+      // Drawdown Histogram (Bars)
+      const histogramSeries = chart.addHistogramSeries({
+        color: '#ef444433',
+        priceFormat: { type: 'price', precision: 0 },
+        lastValueVisible: false,
+        priceLineVisible: false,
       });
-      mainSeries.setData(formattedData);
-      seriesRef.current = mainSeries;
+      histogramSeries.setData(combined.map(p => ({
+        time: Math.floor(p.time / 1000),
+        value: p.value,
+        color: p.value < 0 ? '#ef444444' : '#22c55e44'
+      })));
+      seriesRef.current.push(histogramSeries);
 
-      // Individual Strategies (Thin background lines)
-      if (strategies.length > 1) {
+      // Drawdown Line
+      const lineSeries = chart.addLineSeries({
+        color: '#ef4444',
+        lineWidth: 2,
+        priceFormat: { type: 'price', precision: 0 },
+        title: 'Drawdown',
+      });
+      lineSeries.setData(combined.map(p => ({ time: Math.floor(p.time / 1000), value: p.value })));
+      seriesRef.current.push(lineSeries);
+    } else {
+      // Equity Line
+      const mainSeries = chart.addAreaSeries({
+        lineColor: '#ffffff',
+        topColor: '#ffffff11',
+        bottomColor: '#ffffff00',
+        lineWidth: 2,
+        priceFormat: { type: 'price', precision: 0 },
+        title: 'Total Equity',
+      });
+      mainSeries.setData(combined.map(p => ({ time: Math.floor(p.time / 1000), value: p.value })));
+      seriesRef.current.push(mainSeries);
+
+      // Individual Strategies
+      if (!hideLegend && strategies.length > 1) {
         strategies.forEach((s, idx) => {
           const sSeries = chart.addLineSeries({
             color: COLORS.chart[idx % COLORS.chart.length],
             lineWidth: 1,
-            lineStyle: LineStyle.Dashed,
-            priceFormat: { type: 'price', precision: 0, minMove: 1 },
-            crosshairMarkerVisible: false,
-            lastValueVisible: false,
-            priceLineVisible: false,
+            lineStyle: 2,
+            priceFormat: { type: 'price', precision: 0 },
+            title: s.name,
           });
           sSeries.setData(s.equityCurve.map(p => ({ time: Math.floor(p.time / 1000), value: p.value })));
-          strategySeriesRefs.current.push(sSeries);
+          seriesRef.current.push(sSeries);
         });
       }
-    } else {
-      // Drawdown Area Series
-      const ddSeries = chart.addAreaSeries({
-        lineColor: '#ef4444',
-        topColor: 'rgba(239, 68, 68, 0.4)',
-        bottomColor: 'rgba(239, 68, 68, 0.05)',
-        lineWidth: 2,
-        priceFormat: { type: 'price', precision: 0, minMove: 1 },
-      });
-      ddSeries.setData(formattedData);
-      seriesRef.current = ddSeries;
     }
+
+    chart.timeScale().fitContent();
 
     const handleResize = () => {
       chart.applyOptions({ width: chartContainerRef.current.clientWidth });
     };
-
     window.addEventListener('resize', handleResize);
 
     return () => {
       window.removeEventListener('resize', handleResize);
       chart.remove();
     };
-  }, [combined, strategies, mode]);
+  }, [combined, mode, strategies, hideLegend]);
 
-  return (
-    <div className="relative w-full group">
-      <div ref={chartContainerRef} className="w-full" />
-      
-      {/* Smart Legend / Tooltip Overlay */}
-      <div className="absolute top-4 left-4 z-10 pointer-events-none flex flex-col gap-1 bg-black/60 backdrop-blur-md p-3 rounded-xl border border-white/5 opacity-0 group-hover:opacity-100 transition-opacity">
-        <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${mode === 'EQUITY' ? 'bg-white' : 'bg-red-500'}`} />
-          <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-widest">
-            Portfolio {mode === 'EQUITY' ? 'Equity' : 'Drawdown'}
-          </span>
-        </div>
-        <div className="text-xl font-mono font-bold text-white tabular-nums">
-          {/* LW Charts manages value display via crosshair, but we could add a custom legend here */}
-          <span className="text-xs text-zinc-500 mr-2">VALUE</span>
-          {combined[combined.length - 1]?.value >= 0 ? '$' : '-$'}
-          {Math.abs(combined[combined.length - 1]?.value || 0).toLocaleString()}
-        </div>
-      </div>
-    </div>
-  );
+  return <div ref={chartContainerRef} className="w-full h-full relative" />;
 };
+
 
 const StatCard = ({ label, value, icon, color, subValue }) => (
   <div className="bg-zinc-950 border border-zinc-900 p-3 rounded-xl space-y-1.5 relative overflow-hidden group hover:border-zinc-700 transition-all duration-300 min-w-[120px]">
