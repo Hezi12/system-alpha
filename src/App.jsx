@@ -1,8 +1,4 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import * as LightweightCharts from 'lightweight-charts';
-if (typeof window !== 'undefined') {
-  window.LightweightCharts = LightweightCharts;
-}
 import { Upload, Activity, ChevronLeft, ChevronRight, BarChart2, Clock, Calendar, Filter, FileCheck, Play, TrendingUp, Hash, DollarSign, X, Table, ArrowUp, ArrowDown, CalendarRange, ArrowDownRight, Download, ChevronDown, Plus, Minus, ZoomIn, BarChart3, Save, FolderOpen, Trash2, ToggleLeft, ToggleRight, Power, PowerOff, Eye, EyeOff, Sparkles, RotateCcw, LayoutDashboard, FileText } from 'lucide-react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { CONDITIONS, CATEGORIES, getConditionById } from './conditions';
@@ -972,8 +968,8 @@ const checkCondition = (conditionId, data, index, indicators, params = {}, indic
   
   if (conditionId === 'candle_body_min_ticks') {
     const minTicks = parseParamValue(params.minTicks, 34);
-    // NinjaTrader Compatibility: Tick size is 0.25 for NQ
-    // (Close - Open) / 0.25 gives the body in ticks
+    // NinjaTrader Compatibility: Tick size 0.25 for NQ. Body SIZE = |Close-Open| (גם נר אדום)
+    const bodyTicks = (o, c) => Math.abs(c - o) / 0.25;
     if (activeTF !== primaryTimeframe) {
       if (!rawData || rawData.length === 0) return false;
       const tfDataKey = `tfData_${activeTF}`;
@@ -982,9 +978,9 @@ const checkCondition = (conditionId, data, index, indicators, params = {}, indic
       const tfIndex = getLastClosedSecondaryIndex(data, index, primaryTimeframe, tfData, activeTF, indicatorCache);
       if (tfIndex === -1) return false;
       const c = tfData[tfIndex];
-      return (c.close - c.open) / 0.25 >= minTicks;
+      return bodyTicks(c.open, c.close) >= minTicks;
     }
-    return (candle.close - candle.open) / 0.25 >= minTicks;
+    return bodyTicks(candle.open, candle.close) >= minTicks;
   }
 
   if (conditionId === 'min_red_candles') {
@@ -1087,18 +1083,21 @@ const checkCondition = (conditionId, data, index, indicators, params = {}, indic
   if (conditionId === 'market_change_percent_range') {
     const minPercent = parseParamValue(params.minPercent, -2.1);
     const maxPercent = parseParamValue(params.maxPercent, 10);
-    
-    // Find prior day close
+    // Cache: חישוב פעם אחת לכל הנתונים (מניעת O(n²) – aggregateToDaily לכל בר)
+    const cacheKey = 'market_change_prior_closes';
+    if (!indicatorCache[cacheKey]) {
+      const dailyData = aggregateToDaily(data);
+      const priorByDate = {};
+      for (let i = 1; i < dailyData.length; i++) {
+        priorByDate[dailyData[i].date] = dailyData[i - 1].close;
+      }
+      indicatorCache[cacheKey] = priorByDate;
+    }
+    const priorByDate = indicatorCache[cacheKey];
     const date = new Date(candle.time * 1000);
     const currentDateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
-    const dailyData = aggregateToDaily(data, index);
-    const currentDayIdx = dailyData.findIndex(d => d.date === currentDateStr);
-    
-    if (currentDayIdx <= 0) return true; // No prior day data yet, allow (or return true like NT if indicator null)
-    
-    const priorClose = dailyData[currentDayIdx - 1].close;
-    if (priorClose <= 0) return true;
-    
+    const priorClose = priorByDate[currentDateStr];
+    if (priorClose == null || priorClose <= 0) return true; // אין יום קודם – לא מסננים
     const dailyChangePercent = (candle.close - priorClose) / priorClose * 100.0;
     return dailyChangePercent >= minPercent && dailyChangePercent <= maxPercent;
   }
@@ -1594,11 +1593,14 @@ const runBacktest = (data, entryConditions, exitConditions, rawData = [], strate
       }
       
       // בדיקת טייק פרופיט (רק אם לא יצאנו ב-Stop)
+      // NinjaTrader-style: נדרש טיק אחד לפחות מעל היעד - high > tpPrice
+      // Gap up: פתיחה מעל TP → מילאנו ב-open (רווח מלא, לא מוגבל ל-TP – כמו SL בגאפ)
       if (!intrabarExitPrice && tpTicksCond) {
           const tpPrice = currentTrade.entryPrice + (tpTicksCond.params?.ticks * tickSize);
-          if (candle.high >= tpPrice) {
-              intrabarExitPrice = tpPrice;
-              exitReason = 'Take Profit';
+          if (candle.high > tpPrice) {
+              const isGapThroughTP = candle.open >= tpPrice;
+              intrabarExitPrice = isGapThroughTP ? candle.open : tpPrice;
+              exitReason = isGapThroughTP ? 'Take Profit (Gap)' : 'Take Profit';
           }
       }
 
@@ -2872,6 +2874,71 @@ export default function App() {
 
   // טעינת אסטרטגיות שמורות
   useEffect(() => {
+    const d1Strategy = {
+      id: 'd1_macd_only_test',
+      name: 'D1 - MACD בלבד (בדיקת פער)',
+      entryConditions: [
+        { id: 'time_range', params: { startTime: 830, endTime: 1340 }, enabled: true, visible: true, timeframe: null },
+        { id: 'macd_cross_above_signal', params: {}, enabled: true, visible: true, timeframe: null }
+      ],
+      exitConditions: [
+        { id: 'stop_loss_ticks', params: { ticks: 80 }, enabled: true, visible: true },
+        { id: 'take_profit_ticks', params: { ticks: 160 }, enabled: true, visible: true }
+      ]
+    };
+
+    const c1Strategy = {
+      id: 'c1_macd_ema_atr_volume',
+      name: 'C1 - MACD Cross + EMA + ATR + Volume (כיסוי ספרייה)',
+      entryConditions: [
+        { id: 'time_range', params: { startTime: 830, endTime: 1340 }, enabled: true, visible: true, timeframe: null },
+        { id: 'macd_cross_above_signal', params: {}, enabled: true, visible: true, timeframe: null },
+        { id: 'price_above_ema', params: { period: 20 }, enabled: true, visible: true, timeframe: null },
+        { id: 'atr_in_range', params: { period: 30, min: 12, max: 55 }, enabled: true, visible: true, timeframe: null },
+        { id: 'volume_above_avg', params: { period: 20 }, enabled: true, visible: true, timeframe: null },
+        { id: 'candle_body_min_ticks', params: { minTicks: 20 }, enabled: true, visible: true, timeframe: null }
+      ],
+      exitConditions: [
+        { id: 'macd_cross_below_signal', params: {}, enabled: true, visible: true, timeframe: null },
+        { id: 'stop_loss_ticks', params: { ticks: 80 }, enabled: true, visible: true },
+        { id: 'take_profit_ticks', params: { ticks: 160 }, enabled: true, visible: true }
+      ]
+    };
+
+    const b1Strategy = {
+      id: 'b1_multi_filter_long',
+      name: 'B1 - RSI Oversold + ADX + Volume Spike + Pullback',
+      entryConditions: [
+        { id: 'time_range', params: { startTime: 830, endTime: 1340 }, enabled: true, visible: true, timeframe: null },
+        { id: 'rsi_below', params: { period: 14, threshold: 30 }, enabled: true, visible: true, timeframe: null },
+        { id: 'adx_range', params: { period: 14, min: 18, max: 55 }, enabled: true, visible: true, timeframe: null },
+        { id: 'green_candle', params: {}, enabled: true, visible: true, timeframe: null },
+        { id: 'volume_spike', params: { period: 16, multiplier: 1.6 }, enabled: true, visible: true, timeframe: null },
+        { id: 'min_red_candles', params: { minCount: 2, lookback: 6 }, enabled: true, visible: true, timeframe: null },
+        { id: 'bar_range_ticks_range', params: { minTicks: 15, maxTicks: 250 }, enabled: true, visible: true, timeframe: null }
+      ],
+      exitConditions: [
+        { id: 'rsi_above', params: { period: 14, threshold: 68 }, enabled: true, visible: true, timeframe: null },
+        { id: 'stop_loss_ticks', params: { ticks: 60 }, enabled: true, visible: true },
+        { id: 'take_profit_ticks', params: { ticks: 120 }, enabled: true, visible: true }
+      ]
+    };
+
+    const e1Strategy = {
+      id: 'e1_daily_change_macd',
+      name: 'E1 - שינוי יומי % + MACD Cross',
+      entryConditions: [
+        { id: 'time_range', params: { startTime: 830, endTime: 1340 }, enabled: true, visible: true, timeframe: null },
+        { id: 'market_change_percent_range', params: { minPercent: -2.1, maxPercent: 10 }, enabled: true, visible: true, timeframe: null },
+        { id: 'macd_cross_above_signal', params: {}, enabled: true, visible: true, timeframe: null }
+      ],
+      exitConditions: [
+        { id: 'macd_cross_below_signal', params: {}, enabled: true, visible: true, timeframe: null },
+        { id: 'stop_loss_ticks', params: { ticks: 80 }, enabled: true, visible: true },
+        { id: 'take_profit_ticks', params: { ticks: 160 }, enabled: true, visible: true }
+      ]
+    };
+
     const a01Strategy = {
       id: 'a01_volume_spike',
       name: 'A01 - Volume Spike Long',
@@ -2905,12 +2972,24 @@ export default function App() {
     if (saved) {
       const strategies = JSON.parse(saved);
       // הוספת אסטרטגיות ברירת מחדל רק אם הן לא קיימות כבר
+      if (!strategies.find(s => s.id === 'd1_macd_only_test')) {
+        strategies.unshift(d1Strategy);
+      }
+      if (!strategies.find(s => s.id === 'c1_macd_ema_atr_volume')) {
+        strategies.unshift(c1Strategy);
+      }
+      if (!strategies.find(s => s.id === 'b1_multi_filter_long')) {
+        strategies.unshift(b1Strategy);
+      }
       if (!strategies.find(s => s.id === 'a01_volume_spike')) {
         strategies.unshift(a01Strategy);
       }
+      if (!strategies.find(s => s.id === 'e1_daily_change_macd')) {
+        strategies.unshift(e1Strategy);
+      }
       setSavedStrategies(strategies);
     } else {
-      setSavedStrategies([a01Strategy]);
+      setSavedStrategies([d1Strategy, c1Strategy, b1Strategy, e1Strategy, a01Strategy]);
     }
   }, []);
 

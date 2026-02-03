@@ -51,8 +51,8 @@ class BacktestEngine:
         entry_signals = self._check_conditions(strategy.entryConditions)
         exit_signals = self._check_conditions(strategy.exitConditions)
         
-        # Simulate trades
-        trades = self._simulate_trades(entry_signals, exit_signals)
+        # Simulate trades (with intrabar SL/TP)
+        trades = self._simulate_trades(entry_signals, exit_signals, strategy)
         
         # Calculate statistics
         return self._calculate_statistics(trades)
@@ -137,21 +137,23 @@ class BacktestEngine:
             return rsi < level
         
         # MACD Conditions
-        elif cond_id == 'macd_cross_above':
+        elif cond_id in ('macd_cross_above', 'macd_cross_above_signal'):
             fast = params.get('fast', 12)
             slow = params.get('slow', 26)
             signal_period = params.get('signal', 9)
             macd = self.indicator_bank.get_mtf(f'macd_{fast}_{slow}_{signal_period}', tf)
             signal_line = self.indicator_bank.get_mtf(f'macd_signal_{fast}_{slow}_{signal_period}', tf)
-            return (macd[:-1] <= signal_line[:-1]) & (macd[1:] > signal_line[1:])
+            cross = (macd[:-1] <= signal_line[:-1]) & (macd[1:] > signal_line[1:])
+            return np.concatenate([[False], cross])  # align length to primary
         
-        elif cond_id == 'macd_cross_below':
+        elif cond_id in ('macd_cross_below', 'macd_cross_below_signal'):
             fast = params.get('fast', 12)
             slow = params.get('slow', 26)
             signal_period = params.get('signal', 9)
             macd = self.indicator_bank.get_mtf(f'macd_{fast}_{slow}_{signal_period}', tf)
             signal_line = self.indicator_bank.get_mtf(f'macd_signal_{fast}_{slow}_{signal_period}', tf)
-            return (macd[:-1] >= signal_line[:-1]) & (macd[1:] < signal_line[1:])
+            cross = (macd[:-1] >= signal_line[:-1]) & (macd[1:] < signal_line[1:])
+            return np.concatenate([[False], cross])  # align length to primary
         
         # MA Conditions
         elif cond_id == 'price_above_sma':
@@ -520,8 +522,8 @@ class BacktestEngine:
             daily_last_close = df.groupby('date')['close'].last()
             prior_day_closes = daily_last_close.shift(1)
             
-            # Map prior day closes back to the original index
-            mapped_prior_closes = dates.map(prior_day_closes)
+            # Map prior day closes back to the original index (dates can be numpy – use pd.Series)
+            mapped_prior_closes = pd.Series(dates).map(prior_day_closes).values
             
             # Calculate change percent
             # Handle the first day where prior_day_close is NaN
@@ -700,45 +702,88 @@ class BacktestEngine:
 
         return np.zeros(self.length, dtype=bool)
 
-    def _simulate_trades(self, entry_signals: np.ndarray, exit_signals: np.ndarray) -> List[Dict[str, Any]]:
-        """Simulate trades"""
+    def _simulate_trades(self, entry_signals: np.ndarray, exit_signals: np.ndarray, strategy: Strategy) -> List[Dict[str, Any]]:
+        """Simulate trades with intrabar SL/TP (NinjaTrader-style)"""
+        TICK_SIZE = 0.25
         trades = []
         in_trade = False
-        entry_price = 0
+        entry_price = 0.0
         entry_idx = 0
         close = self.data['close']
-        
+        open_ = self.data['open']
+        high = self.data['high']
+        low = self.data['low']
+        time_arr = self.data['time']
+
+        # Extract SL/TP from exit conditions
+        sl_ticks = None
+        tp_ticks = None
+        for c in (strategy.exitConditions or []):
+            if not getattr(c, 'enabled', True):
+                continue
+            if c.id == 'stop_loss_ticks':
+                sl_ticks = (c.params or {}).get('ticks')
+            elif c.id == 'take_profit_ticks':
+                tp_ticks = (c.params or {}).get('ticks')
+
         for i in range(len(close)):
-            if not in_trade and entry_signals[i]:
-                in_trade = True
-                entry_price = close[i]
-                entry_idx = i
-            elif in_trade and exit_signals[i]:
+            # 1. Intrabar SL/TP check (when in trade)
+            if in_trade and i >= entry_idx:
+                intrabar_exit = None
+                exit_reason = ''
+                if sl_ticks is not None:
+                    sl_price = entry_price - (sl_ticks * TICK_SIZE)
+                    if low[i] <= sl_price:
+                        # Gap through: exit at open
+                        intrabar_exit = open_[i] if open_[i] <= sl_price else sl_price
+                        exit_reason = 'Stop Loss (Gap)' if open_[i] <= sl_price else 'Stop Loss'
+                if intrabar_exit is None and tp_ticks is not None:
+                    tp_price = entry_price + (tp_ticks * TICK_SIZE)
+                    if high[i] > tp_price:  # NinjaTrader: needs tick above
+                        # Gap up: פתיחה מעל TP → מילאנו ב-open (רווח מלא, לא מוגבל ל-TP)
+                        intrabar_exit = open_[i] if open_[i] >= tp_price else tp_price
+                        exit_reason = 'Take Profit (Gap)' if open_[i] >= tp_price else 'Take Profit'
+                if intrabar_exit is not None:
+                    profit = intrabar_exit - entry_price
+                    trades.append({
+                        'entry_idx': entry_idx, 'exit_idx': i,
+                        'entry_price': entry_price, 'exit_price': intrabar_exit,
+                        'profit': profit,
+                        'entry_time': int(time_arr[entry_idx]), 'exit_time': int(time_arr[i]),
+                        'exit_reason': exit_reason
+                    })
+                    in_trade = False
+                    # Allow new entry on same bar
+                    if not entry_signals[i]:
+                        continue
+
+            # 2. Exit on signal (bar close)
+            if in_trade and exit_signals[i]:
                 exit_price = close[i]
                 profit = exit_price - entry_price
                 trades.append({
-                    'entry_idx': entry_idx,
-                    'exit_idx': i,
-                    'entry_price': entry_price,
-                    'exit_price': exit_price,
+                    'entry_idx': entry_idx, 'exit_idx': i,
+                    'entry_price': entry_price, 'exit_price': exit_price,
                     'profit': profit,
-                    'entry_time': int(self.data['time'][entry_idx]),
-                    'exit_time': int(self.data['time'][i]),
+                    'entry_time': int(time_arr[entry_idx]), 'exit_time': int(time_arr[i]),
                     'exit_reason': 'Signal'
                 })
                 in_trade = False
-        
+
+            # 3. Entry (OnBarClose: signal at bar i close -> execute at next bar open)
+            if not in_trade and entry_signals[i] and i + 1 < len(close):
+                in_trade = True
+                entry_idx = i + 1
+                entry_price = open_[i + 1]
+
         if in_trade:
             exit_price = close[-1]
             profit = exit_price - entry_price
             trades.append({
-                'entry_idx': entry_idx,
-                'exit_idx': len(close) - 1,
-                'entry_price': entry_price,
-                'exit_price': exit_price,
+                'entry_idx': entry_idx, 'exit_idx': len(close) - 1,
+                'entry_price': entry_price, 'exit_price': exit_price,
                 'profit': profit,
-                'entry_time': int(self.data['time'][entry_idx]),
-                'exit_time': int(self.data['time'][-1]),
+                'entry_time': int(time_arr[entry_idx]), 'exit_time': int(time_arr[-1]),
                 'exit_reason': 'Session End'
             })
         return trades

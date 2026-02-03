@@ -1,6 +1,5 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { createChart, ColorType } from 'lightweight-charts';
-import { Upload, FileText, ChevronLeft, BarChart2, TrendingUp, ArrowUp, ArrowDown, Activity, Download, Search, Filter, X, Table, Plus, PieChart, Layers, Trash2, Layout, Check, ChevronDown, Calendar, ZoomIn, Maximize2 } from 'lucide-react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
+import { Upload, FileText, ChevronLeft, BarChart2, TrendingUp, ArrowUp, ArrowDown, Activity, Download, Search, Filter, X, Table, Plus, PieChart, Layers, Trash2, Layout, Check, ChevronDown, Calendar } from 'lucide-react';
 
 const COLORS = {
   bg: '#000000',
@@ -187,45 +186,57 @@ const PortfolioAnalyzer = ({ onBack }) => {
     if (strategies.length === 0) return null;
 
     const activeStrats = individualStats.filter(s => s.active);
-    if (activeStrats.length === 0) return { netProfit: 0, totalTrades: 0, winRate: 0, profitFactor: 0, maxDD: 0, equityCurve: [], strategyCount: 0 };
+    if (activeStrats.length === 0) return { netProfit: 0, totalTrades: 0, winRate: 0, profitFactor: 0, maxDD: 0, equityCurve: [], drawdownCurve: [], monthlyAvg: 0, maxRecoveryTime: 0, strategyCount: 0 };
 
     const allTrades = activeStrats.flatMap(s => 
       s.trades.map(t => ({ ...t, adjustedProfit: t.profit * s.multiplier }))
     ).sort((a, b) => a.exitTime - b.exitTime);
-    
-    let cumProfit = 0;
-    let peak = 0;
-    let maxDD = 0;
+
+    // Aggregate by exit time: portfolio equity at each moment = sum of all P&L at that time
+    const byTime = {};
+    allTrades.forEach(t => {
+      const key = t.exitTime;
+      if (!byTime[key]) byTime[key] = { time: key, profit: 0 };
+      byTime[key].profit += t.adjustedProfit;
+    });
+    const timePoints = Object.values(byTime).sort((a, b) => a.time - b.time);
+
     let totalWins = 0;
     let grossProfit = 0;
     let grossLoss = 0;
-    let lastPeakTime = allTrades[0].exitTime;
-    let maxRecoveryTime = 0;
-
-    const equityCurve = [];
-    const drawdownCurve = [];
-
     allTrades.forEach(t => {
-      cumProfit += t.adjustedProfit;
       if (t.adjustedProfit > 0) {
         totalWins++;
         grossProfit += t.adjustedProfit;
       } else {
         grossLoss += Math.abs(t.adjustedProfit);
       }
-      
+    });
+
+    let cumProfit = 0;
+    let peak = 0;
+    let maxDD = 0;
+    let lastPeakTime = timePoints[0]?.time || 0;
+    let maxRecoveryTime = 0;
+
+    const equityCurve = [];
+    const drawdownCurve = [];
+
+    timePoints.forEach(pt => {
+      cumProfit += pt.profit;
+
       if (cumProfit >= peak) {
-        const recoveryTime = t.exitTime - lastPeakTime;
+        const recoveryTime = pt.time - lastPeakTime;
         if (recoveryTime > maxRecoveryTime) maxRecoveryTime = recoveryTime;
         peak = cumProfit;
-        lastPeakTime = t.exitTime;
+        lastPeakTime = pt.time;
       }
 
       const dd = peak - cumProfit;
       if (dd > maxDD) maxDD = dd;
-      
-      equityCurve.push({ time: t.exitTime, value: cumProfit });
-      drawdownCurve.push({ time: t.exitTime, value: -dd });
+
+      equityCurve.push({ time: pt.time, value: cumProfit });
+      drawdownCurve.push({ time: pt.time, value: -dd });
     });
 
     const firstTime = allTrades[0].entryTime || allTrades[0].exitTime;
@@ -456,17 +467,6 @@ const PortfolioAnalyzer = ({ onBack }) => {
                           DRAWDOWN
                         </button>
                       </div>
-
-                      <button 
-                        onClick={() => {
-                          // Note: In a real app we'd trigger chart.timeScale().fitContent() via a ref or state
-                          // For now, let's keep it minimalist or add a small helper
-                        }}
-                        className="p-1.5 rounded-md text-zinc-600 hover:text-zinc-400 hover:bg-zinc-900/50 transition-all group"
-                        title="Reset Zoom"
-                      >
-                        <Maximize2 size={12} />
-                      </button>
                     </div>
 
                     <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 max-w-[50%]">
@@ -483,11 +483,13 @@ const PortfolioAnalyzer = ({ onBack }) => {
                     </div>
                   </div>
                   
-                  <div className="h-80 w-full">
+                  <div className="h-80 w-full relative">
                     <PortfolioChart 
                       strategies={individualStats.filter(s => s.active)} 
                       combined={activeChart === 'EQUITY' ? portfolioStats.equityCurve : portfolioStats.drawdownCurve} 
                       mode={activeChart}
+                      maxDD={portfolioStats.maxDD}
+                      equityCurve={portfolioStats.equityCurve}
                     />
                   </div>
                 </div>
@@ -644,176 +646,211 @@ const PortfolioAnalyzer = ({ onBack }) => {
   );
 };
 
-const PortfolioChart = ({ strategies, combined, mode, hideLegend }) => {
-  const chartContainerRef = useRef();
-  const chartRef = useRef();
-  const seriesRef = useRef([]);
+const PortfolioChart = ({ strategies, combined, mode, hideLegend, maxDD: maxDDProp, equityCurve }) => {
+  const containerRef = useRef(null);
+  const zoomBarRef = useRef(null);
+  const [tooltip, setTooltip] = useState(null);
+  const [zoomStart, setZoomStart] = useState(0);
+  const [zoomEnd, setZoomEnd] = useState(1);
+  const [dragState, setDragState] = useState(null); // { type: 'pan'|'left'|'right', startX, startZoomStart, startZoomEnd }
 
-  useEffect(() => {
-    if (!combined || combined.length === 0 || !chartContainerRef.current) return;
+  if (!combined || combined.length === 0) return null;
 
-    const chartOptions = {
-      layout: {
-        background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#71717a',
-        fontSize: 10,
-        fontFamily: 'JetBrains Mono, monospace',
-      },
-      grid: {
-        vertLines: { color: '#18181b', style: 2 },
-        horzLines: { color: '#18181b', style: 2 },
-      },
-      rightPriceScale: {
-        borderColor: '#18181b',
-        autoScale: true,
-      },
-      timeScale: {
-        borderColor: '#18181b',
-        timeVisible: true,
-        secondsVisible: false,
-      },
-      crosshair: {
-        mode: 0,
-        vertLine: { color: '#3b82f6', width: 1, style: 3, labelBackgroundColor: '#1d4ed8' },
-        horzLine: { color: '#3b82f6', width: 1, style: 3, labelBackgroundColor: '#1d4ed8' },
-      },
-      handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
-      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
-    };
+  const width = 1000;
+  const height = 280;
+  const padding = { top: 20, right: 20, bottom: 20, left: 20 };
+  const chartHeight = height - padding.top - padding.bottom;
+  const chartWidth = width - padding.left - padding.right;
+  const zoomBarHeight = 32;
+  const n = combined.length;
+  const iStart = Math.floor(zoomStart * (n - 1));
+  const iEnd = Math.ceil(zoomEnd * (n - 1));
+  const visibleCount = Math.max(1, iEnd - iStart);
+  const visibleData = combined.slice(iStart, iEnd + 1);
 
-    const chart = createChart(chartContainerRef.current, {
-      ...chartOptions,
-      width: chartContainerRef.current.clientWidth,
-      height: chartContainerRef.current.clientHeight,
+  let minVal = mode === 'DRAWDOWN' ? -1 : 0;
+  let maxVal = mode === 'DRAWDOWN' ? 0 : 1;
+  
+  strategies.forEach(s => {
+    const curve = mode === 'EQUITY' ? s.equityCurve : s.drawdownCurve;
+    curve.forEach(p => {
+      if (p.value < minVal) minVal = p.value;
+      if (p.value > maxVal) maxVal = p.value;
     });
-    
-    chartRef.current = chart;
+  });
+  
+  combined.forEach(p => {
+    if (p.value < minVal) minVal = p.value;
+    if (p.value > maxVal) maxVal = p.value;
+  });
 
-    // Create Tooltip element
-    const container = chartContainerRef.current;
-    const tooltip = document.createElement('div');
-    tooltip.style.display = 'none';
-    tooltip.style.position = 'absolute';
-    tooltip.style.padding = '8px 12px';
-    tooltip.style.backgroundColor = '#09090b';
-    tooltip.style.border = '1px solid #18181b';
-    tooltip.style.borderRadius = '8px';
-    tooltip.style.color = '#fafafa';
-    tooltip.style.fontSize = '10px';
-    tooltip.style.fontFamily = 'JetBrains Mono, monospace';
-    tooltip.style.zIndex = '1000';
-    tooltip.style.pointerEvents = 'none';
-    tooltip.style.boxShadow = '0 4px 12px rgba(0,0,0,0.5)';
-    container.appendChild(tooltip);
+  const range = maxVal - minVal || 1;
+  const scaleY = (val) => padding.top + chartHeight - ((val - minVal) / range) * chartHeight;
+  const scaleXVisible = (i) => padding.left + ((i - iStart) / (visibleCount - 1 || 1)) * chartWidth;
 
-    // ... existing series logic ...
-
-    // Tooltip logic
-    chart.subscribeCrosshairMove(param => {
-      if (
-        param.point === undefined ||
-        !param.time ||
-        param.point.x < 0 ||
-        param.point.x > container.clientWidth ||
-        param.point.y < 0 ||
-        param.point.y > container.clientHeight
-      ) {
-        tooltip.style.display = 'none';
-      } else {
-        tooltip.style.display = 'block';
-        const data = param.seriesData.values().next().value;
-        const price = data?.value !== undefined ? data.value : data?.close;
-        const dateStr = new Date(param.time * 1000).toLocaleString();
-        
-        tooltip.innerHTML = `
-          <div style="color: #71717a; margin-bottom: 4px;">${dateStr}</div>
-          <div style="display: flex; justify-between; gap: 12px;">
-            <span style="color: #fafafa; font-weight: bold;">${mode === 'EQUITY' ? 'EQUITY' : 'DRAWDOWN'}:</span>
-            <span style="color: ${price >= 0 ? '#22c55e' : '#ef4444'}; font-weight: bold;">$${price?.toLocaleString()}</span>
-          </div>
-        `;
-
-        const toolWidth = 160;
-        const toolHeight = 50;
-        let left = param.point.x + 15;
-        let top = param.point.y + 15;
-
-        if (left > container.clientWidth - toolWidth) left = param.point.x - toolWidth - 15;
-        if (top > container.clientHeight - toolHeight) top = param.point.y - toolHeight - 15;
-
-        tooltip.style.left = left + 'px';
-        tooltip.style.top = top + 'px';
-      }
-    });
-    if (mode === 'DRAWDOWN') {
-      // Drawdown Histogram (Bars)
-      const histogramSeries = chart.addHistogramSeries({
-        color: '#ef444433',
-        priceFormat: { type: 'price', precision: 0 },
-        lastValueVisible: false,
-        priceLineVisible: false,
+  const handleMouseMove = useCallback((e) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * width;
+    const relX = (x - padding.left) / chartWidth;
+    const rawIndex = iStart + relX * visibleCount;
+    const index = Math.round(Math.max(0, Math.min(n - 1, rawIndex)));
+    const point = combined[index];
+    if (point) {
+      setTooltip({
+        index,
+        value: point.value,
+        time: point.time,
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
       });
-      histogramSeries.setData(combined.map(p => ({
-        time: Math.floor(p.time / 1000),
-        value: p.value,
-        color: p.value < 0 ? '#ef444444' : '#22c55e44'
-      })));
-      seriesRef.current.push(histogramSeries);
-
-      // Drawdown Line
-      const lineSeries = chart.addLineSeries({
-        color: '#ef4444',
-        lineWidth: 2,
-        priceFormat: { type: 'price', precision: 0 },
-        title: 'Drawdown',
-      });
-      lineSeries.setData(combined.map(p => ({ time: Math.floor(p.time / 1000), value: p.value })));
-      seriesRef.current.push(lineSeries);
-    } else {
-      // Equity Line
-      const mainSeries = chart.addAreaSeries({
-        lineColor: '#ffffff',
-        topColor: '#ffffff11',
-        bottomColor: '#ffffff00',
-        lineWidth: 2,
-        priceFormat: { type: 'price', precision: 0 },
-        title: 'Total Equity',
-      });
-      mainSeries.setData(combined.map(p => ({ time: Math.floor(p.time / 1000), value: p.value })));
-      seriesRef.current.push(mainSeries);
-
-      // Individual Strategies
-      if (!hideLegend && strategies.length > 1) {
-        strategies.forEach((s, idx) => {
-          const sSeries = chart.addLineSeries({
-            color: COLORS.chart[idx % COLORS.chart.length],
-            lineWidth: 1,
-            lineStyle: 2,
-            priceFormat: { type: 'price', precision: 0 },
-            title: s.name,
-          });
-          sSeries.setData(s.equityCurve.map(p => ({ time: Math.floor(p.time / 1000), value: p.value })));
-          seriesRef.current.push(sSeries);
-        });
-      }
     }
+  }, [combined, iStart, visibleCount, n, width, chartWidth]);
 
-    chart.timeScale().fitContent();
+  const handleMouseLeave = useCallback(() => setTooltip(null), []);
 
-    const handleResize = () => {
-      chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+  const handleZoomBarMouseDown = useCallback((e) => {
+    if (!zoomBarRef.current) return;
+    e.preventDefault();
+    const rect = zoomBarRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const w = zoomEnd - zoomStart;
+    if (x < zoomStart + 0.05) setDragState({ type: 'left', startX: x, startZoomStart: zoomStart, startZoomEnd: zoomEnd });
+    else if (x > zoomEnd - 0.05) setDragState({ type: 'right', startX: x, startZoomStart: zoomStart, startZoomEnd: zoomEnd });
+    else setDragState({ type: 'pan', startX: x, startZoomStart: zoomStart, startZoomEnd: zoomEnd });
+  }, [zoomStart, zoomEnd]);
+
+  React.useEffect(() => {
+    if (!dragState) return;
+    const onMove = (e) => {
+      if (!zoomBarRef.current) return;
+      const rect = zoomBarRef.current.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      const delta = x - dragState.startX;
+      if (dragState.type === 'pan') {
+        const w = dragState.startZoomEnd - dragState.startZoomStart;
+        let newStart = dragState.startZoomStart + delta;
+        newStart = Math.max(0, Math.min(1 - w, newStart));
+        setZoomStart(newStart);
+        setZoomEnd(newStart + w);
+      } else if (dragState.type === 'left') {
+        let newStart = Math.max(0, Math.min(dragState.startZoomEnd - 0.02, dragState.startZoomStart + delta));
+        setZoomStart(newStart);
+        setZoomEnd(dragState.startZoomEnd);
+      } else {
+        let newEnd = Math.min(1, Math.max(dragState.startZoomStart + 0.02, dragState.startZoomEnd + delta));
+        setZoomStart(dragState.startZoomStart);
+        setZoomEnd(newEnd);
+      }
     };
-    window.addEventListener('resize', handleResize);
+    const onUp = () => setDragState(null);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, [dragState]);
 
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      chart.remove();
-    };
-  }, [combined, mode, strategies, hideLegend]);
+  const formatDate = (ts) => {
+    const d = new Date(ts);
+    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  };
 
-  return <div ref={chartContainerRef} className="w-full h-full relative" />;
+  const combinedPoints = visibleData.map((p, i) => `${scaleXVisible(iStart + i)},${scaleY(p.value)}`);
+  const areaPoints = mode === 'DRAWDOWN' 
+    ? `${scaleXVisible(iStart)},${scaleY(0)} ${combinedPoints.join(' ')} ${scaleXVisible(iEnd)},${scaleY(0)}`
+    : '';
+
+  const zoomBarW = 1000;
+  const zoomBarScaleX = (i) => (i / (n - 1 || 1)) * (zoomBarW - 4);
+  const zoomBarMin = combined.reduce((a, p) => Math.min(a, p.value), 0);
+  const zoomBarMax = combined.reduce((a, p) => Math.max(a, p.value), 0);
+  const zoomBarRange = zoomBarMax - zoomBarMin || 1;
+  const zoomBarScaleY = (val) => zoomBarHeight - 4 - ((val - zoomBarMin) / zoomBarRange) * (zoomBarHeight - 8);
+  const zoomBarLine = combined.map((p, i) => `${zoomBarScaleX(i)},${zoomBarScaleY(p.value)}`).join(' ');
+
+  return (
+    <div className="flex flex-col h-full w-full" ref={containerRef} onMouseMove={hideLegend ? undefined : handleMouseMove} onMouseLeave={hideLegend ? undefined : handleMouseLeave}>
+      <div className="flex-1 min-h-0 relative">
+        <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="block">
+          <defs>
+            <linearGradient id="drawdownGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#ef4444" stopOpacity="0.3" />
+              <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+
+          <line x1={padding.left} y1={scaleY(0)} x2={width - padding.right} y2={scaleY(0)} stroke="#18181b" strokeWidth="1" strokeDasharray="4 4" />
+          
+          {strategies.length > 1 && strategies.map((s, idx) => {
+            const curve = mode === 'EQUITY' ? s.equityCurve : s.drawdownCurve;
+            const visibleCurve = curve.slice(iStart, iEnd + 1);
+            const points = visibleCurve.map((p, i) => `${scaleXVisible(iStart + i)},${scaleY(p.value)}`).join(' ');
+            return (
+              <polyline key={s.id} fill="none" stroke={COLORS.chart[idx % COLORS.chart.length]} strokeWidth="1.5" strokeOpacity={mode === 'EQUITY' ? '0.4' : '0.2'} points={points} />
+            );
+          })}
+
+          {mode === 'DRAWDOWN' && <polygon points={areaPoints} fill="url(#drawdownGradient)" />}
+
+          <polyline fill="none" stroke={mode === 'EQUITY' ? '#ffffff' : '#ef4444'} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" points={combinedPoints.join(' ')} className="drop-shadow-lg" />
+
+          {mode === 'DRAWDOWN' && maxDDProp != null && maxDDProp > 0 && (
+            <g>
+              <line x1={padding.left} y1={scaleY(-maxDDProp)} x2={width - padding.right} y2={scaleY(-maxDDProp)} stroke="#f87171" strokeWidth="1.5" strokeDasharray="4 4" strokeOpacity="0.9" />
+              <text x={padding.left + 4} y={scaleY(-maxDDProp) - 6} textAnchor="start" fill="#f87171" fontSize="11" fontFamily="monospace" fontWeight="bold">Max DD ${maxDDProp.toLocaleString(undefined, { maximumFractionDigits: 0 })}</text>
+            </g>
+          )}
+        </svg>
+
+        {tooltip && !hideLegend && (
+          <div 
+            className="absolute pointer-events-none z-20 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 shadow-xl text-left min-w-[140px]"
+            style={{ left: Math.min(tooltip.x + 12, containerRef.current ? containerRef.current.offsetWidth - 160 : tooltip.x + 12), top: Math.max(8, tooltip.y - 60) }}
+          >
+            <div className="text-[10px] text-zinc-500 uppercase font-bold mb-1">{formatDate(tooltip.time)}</div>
+            {mode === 'EQUITY' ? (
+              <div className={`font-mono font-bold ${tooltip.value >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                ${tooltip.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </div>
+            ) : (
+              <>
+                <div className="font-mono font-bold text-red-500">Drawdown ${Math.abs(tooltip.value).toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+                {equityCurve?.[tooltip.index] != null && (
+                  <div className="text-[10px] text-zinc-500 mt-1">Equity ${equityCurve[tooltip.index].value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+                )}
+              </>
+            )}
+            <div className="text-[9px] text-zinc-600 mt-0.5">Trade #{tooltip.index + 1}</div>
+          </div>
+        )}
+      </div>
+
+      {!hideLegend && (
+      <div className="flex items-center gap-2 px-1 py-2 border-t border-zinc-900">
+        <div 
+          ref={zoomBarRef}
+          className="flex-1 h-8 rounded-lg bg-zinc-950 border border-zinc-800 cursor-pointer relative overflow-hidden select-none"
+          onMouseDown={handleZoomBarMouseDown}
+        >
+          <svg width="100%" height="100%" viewBox={`0 0 ${zoomBarW} ${zoomBarHeight}`} preserveAspectRatio="none" className="block">
+            <polyline fill="none" stroke={mode === 'EQUITY' ? '#3f3f46' : '#7f1d1d'} strokeWidth="1.5" points={zoomBarLine} />
+          </svg>
+          <div 
+            className="absolute top-1 bottom-1 rounded border border-blue-500/50 bg-blue-500/10 pointer-events-none"
+            style={{ left: `${zoomStart * 100}%`, width: `${(zoomEnd - zoomStart) * 100}%` }}
+          />
+        </div>
+        <button 
+          type="button"
+          onClick={() => { setZoomStart(0); setZoomEnd(1); }}
+          className="shrink-0 px-2 py-1 text-[9px] font-bold uppercase text-zinc-500 hover:text-zinc-300 border border-zinc-800 rounded transition-colors"
+        >
+          Reset
+        </button>
+      </div>
+      )}
+    </div>
+  );
 };
-
 
 const StatCard = ({ label, value, icon, color, subValue }) => (
   <div className="bg-zinc-950 border border-zinc-900 p-3 rounded-xl space-y-1.5 relative overflow-hidden group hover:border-zinc-700 transition-all duration-300 min-w-[120px]">

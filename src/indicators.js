@@ -110,6 +110,7 @@ export const calculateRSI = (data, period = 14) => {
 };
 
 // MACD - תואם לנינג'ה טריידר
+// Signal Line = EMA של קו ה-MACD בלבד מערכים תקינים (ללא מילוי 0 שעיוות את החישוב)
 export const calculateMACD = (data, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) => {
   const fastEMA = calculateEMA(data, fastPeriod);
   const slowEMA = calculateEMA(data, slowPeriod);
@@ -124,14 +125,18 @@ export const calculateMACD = (data, fastPeriod = 12, slowPeriod = 26, signalPeri
     }
   }
   
-  // Signal Line = EMA of MACD Line
-  // Convert MACD line to data format for EMA calculation
-  const macdData = macdLine.map((value, i) => ({
-    close: value !== null ? value : 0,
-    time: data[i].time
-  }));
-  
-  const signalLine = calculateEMA(macdData, signalPeriod);
+  // Signal Line = EMA of MACD Line (רק מערכים תקינים - כמו NinjaTrader)
+  // ה-EMA מתחיל רק כשקו MACD תקין (אחרי slowPeriod-1)
+  const signalLine = new Array(data.length).fill(null);
+  const firstValidMacdIdx = slowPeriod - 1;
+  if (firstValidMacdIdx + signalPeriod <= data.length) {
+    const macdValid = macdLine.slice(firstValidMacdIdx).map(v => v);
+    const macdData = macdValid.map((v, i) => ({ close: v, time: data[firstValidMacdIdx + i].time }));
+    const signalValid = calculateEMA(macdData, signalPeriod);
+    for (let i = 0; i < signalValid.length; i++) {
+      signalLine[firstValidMacdIdx + i] = signalValid[i];
+    }
+  }
   
   // Histogram = MACD Line - Signal Line
   const histogram = [];

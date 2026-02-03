@@ -256,9 +256,8 @@ class IndicatorBank:
             elif indicator_type == 'atr' and len(parts) == 2:
                 self.indicators[full_key] = calculate_atr(high, low, close, int(parts[1]))
             elif indicator_type == 'vol' and parts[1] == 'avg':
-                # Volume average should exclude current bar (NinjaTrader style)
-                # Compare current volume to average of previous bars only
-                self.indicators[full_key] = calculate_volume_average_excluding_current(volume, int(parts[2]))
+                # Volume average: SMA (include current bar) - matches frontend & NinjaTrader standard Volume SMA
+                self.indicators[full_key] = _sma_core(volume.astype(np.float64), int(parts[2]))
             elif indicator_type == 'adx' and len(parts) == 2:
                 self.indicators[full_key] = calculate_adx(high, low, close, int(parts[1]))
             elif indicator_type == 'cci' and len(parts) == 2:
@@ -411,22 +410,20 @@ def calculate_rsi(values: np.ndarray, period: int = 14) -> np.ndarray:
 
 
 def calculate_macd(values: np.ndarray, fast: int = 12, slow: int = 26, signal: int = 9):
-    """MACD"""
+    """MACD - תואם NinjaTrader. קו ה-Signal = EMA של קו MACD בלבד מערכים תקינים"""
     ema_fast = calculate_ema(values, fast)
     ema_slow = calculate_ema(values, slow)
     
     macd = ema_fast - ema_slow
     
-    # Filter nan for signal calculation
-    macd_valid = macd[~np.isnan(macd)]
-    if len(macd_valid) < signal:
-        return np.full(len(values), np.nan), np.full(len(values), np.nan), np.full(len(values), np.nan)
-        
-    signal_line_valid = calculate_ema(macd_valid, signal)
-    
-    # Align signal line
+    # Signal = EMA of MACD line - רק מערכים תקינים (מ slow-1 והלאה)
+    first_valid = slow - 1
     signal_aligned = np.full(len(macd), np.nan)
-    signal_aligned[-len(signal_line_valid):] = signal_line_valid
+    if first_valid + signal <= len(macd):
+        macd_slice = macd[first_valid:].astype(np.float64)
+        signal_slice = calculate_ema(macd_slice, signal)
+        # signal_slice has first valid at index signal-1
+        signal_aligned[first_valid:] = signal_slice
     
     histogram = macd - signal_aligned
     
