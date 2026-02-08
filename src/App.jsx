@@ -2283,38 +2283,42 @@ export default function App() {
   // סנכרון בין הגרפים
   useEffect(() => {
     if (!chartInstance.current || !secondaryChartInstance.current || processedData.length === 0 || secondaryProcessedData.length === 0) return;
+    if (!config.showSecondaryChart) return;
 
     const chart1 = chartInstance.current;
     const chart2 = secondaryChartInstance.current;
-    const isSyncing = { current: false };
+    let isSyncing = false;
 
-    const handleSync = (sourceChart, targetChart, range) => {
-      if (isSyncing.current || !range || !range.from || !range.to) return;
-      
+    const handleSync = (targetChart, range) => {
+      if (isSyncing || !range || !range.from || !range.to) return;
+      isSyncing = true;
       try {
-        isSyncing.current = true;
         targetChart.timeScale().setVisibleRange(range);
       } catch (e) {
-        // Ignore sync errors
-      } finally {
-        // Use requestAnimationFrame for smoother sync and to avoid recursion
-        requestAnimationFrame(() => {
-          isSyncing.current = false;
-        });
+        // Different timeframes may not have exact matching time points - ignore
       }
+      requestAnimationFrame(() => { isSyncing = false; });
     };
 
-    const onChart1Change = (range) => handleSync(chart1, chart2, range);
-    const onChart2Change = (range) => handleSync(chart2, chart1, range);
+    const onChart1Change = (range) => handleSync(chart2, range);
+    const onChart2Change = (range) => handleSync(chart1, range);
 
     chart1.timeScale().subscribeVisibleTimeRangeChange(onChart1Change);
     chart2.timeScale().subscribeVisibleTimeRangeChange(onChart2Change);
 
+    // Initial sync: fit both charts to show same time range
+    requestAnimationFrame(() => {
+      const range = chart1.timeScale().getVisibleRange();
+      if (range) handleSync(chart2, range);
+    });
+
     return () => {
-      chart1.timeScale().unsubscribeVisibleTimeRangeChange(onChart1Change);
-      chart2.timeScale().unsubscribeVisibleTimeRangeChange(onChart2Change);
+      try {
+        chart1.timeScale().unsubscribeVisibleTimeRangeChange(onChart1Change);
+        chart2.timeScale().unsubscribeVisibleTimeRangeChange(onChart2Change);
+      } catch (e) { /* chart may already be removed */ }
     };
-  }, [processedData, secondaryProcessedData]);
+  }, [processedData, secondaryProcessedData, config.showSecondaryChart]);
 
   // Crosshair move event handler
   useEffect(() => {
@@ -2587,7 +2591,20 @@ export default function App() {
           scaleMargins: { top: 0.8, bottom: 0 },
         });
     }
-    
+
+    // Auto-fit both charts when data changes (timeframe/session switch)
+    // Double rAF ensures layout is settled before fitting
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (chartInstance.current) {
+          chartInstance.current.timeScale().fitContent();
+        }
+        if (config.showSecondaryChart && secondaryChartInstance.current) {
+          secondaryChartInstance.current.timeScale().fitContent();
+        }
+      });
+    });
+
     if (candleSeriesRef.current) candleSeriesMarkersRef.current.setMarkers([]);
     if (executionSeriesRef.current) executionSeriesRef.current.setData([]);
     if (tradeLineSeriesRef.current) tradeLineSeriesRef.current.setData([]);
@@ -2628,23 +2645,30 @@ export default function App() {
 
   }, [rawData, config]);
 
-  // רספונסיביות
+  // רספונסיביות - resize charts when layout changes
   useEffect(() => {
-      const timer = setTimeout(() => {
+      // Multiple timeouts to handle CSS transition (300ms)
+      const resizeCharts = () => {
           if (chartInstance.current && chartContainerRef.current) {
               chartInstance.current.applyOptions({
                   width: chartContainerRef.current.clientWidth,
                   height: chartContainerRef.current.clientHeight
               });
-              if (secondaryChartInstance.current && secondaryChartContainerRef.current) {
-                secondaryChartInstance.current.applyOptions({
-                  width: secondaryChartContainerRef.current.clientWidth,
-                  height: secondaryChartContainerRef.current.clientHeight
-                });
+          }
+          if (config.showSecondaryChart && secondaryChartInstance.current && secondaryChartContainerRef.current) {
+              const w = secondaryChartContainerRef.current.clientWidth;
+              const h = secondaryChartContainerRef.current.clientHeight;
+              if (w > 0 && h > 0) {
+                secondaryChartInstance.current.applyOptions({ width: w, height: h });
+                secondaryChartInstance.current.timeScale().fitContent();
               }
           }
-      }, 300);
-      return () => clearTimeout(timer);
+      };
+      // Run at multiple points during the CSS transition
+      const t1 = setTimeout(resizeCharts, 50);
+      const t2 = setTimeout(resizeCharts, 320);
+      const t3 = setTimeout(resizeCharts, 600);
+      return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, [config.showSidebar, config.showSecondaryChart]);
 
   const handleFileUpload = async (event) => {
@@ -3169,20 +3193,24 @@ export default function App() {
     const timeScale = chartInstance.current.timeScale();
     const visibleRange = timeScale.getVisibleRange();
     if (!visibleRange) return;
-    
+
     const range = visibleRange.to - visibleRange.from;
-    const center = (visibleRange.from + visibleRange.to) / 2;
-    const newRange = range * 1.4; // Zoom out by 40%
-    
-    // Limit to data range
     const dataStart = processedData[0].time;
     const dataEnd = processedData[processedData.length - 1].time;
     const maxRange = dataEnd - dataStart;
-    
-    const finalRange = Math.min(newRange, maxRange);
-    const from = Math.max(dataStart, center - finalRange / 2);
-    const to = Math.min(dataEnd, center + finalRange / 2);
-    
+
+    // If already showing all data, fit content instead
+    if (range >= maxRange * 0.95) {
+      timeScale.fitContent();
+      return;
+    }
+
+    const center = (visibleRange.from + visibleRange.to) / 2;
+    const newRange = range * 1.5; // Zoom out by 50%
+
+    const from = Math.max(dataStart, center - newRange / 2);
+    const to = Math.min(dataEnd + (maxRange * 0.05), center + newRange / 2);
+
     timeScale.setVisibleRange({ from, to });
   };
 
@@ -4073,11 +4101,22 @@ export default function App() {
                       <ChevronRight size={14} />
                     </button>
                     <button
+                      onClick={() => {
+                        if (chartInstance.current) chartInstance.current.timeScale().fitContent();
+                        if (secondaryChartInstance.current) secondaryChartInstance.current.timeScale().fitContent();
+                      }}
+                      disabled={!isDataLoaded}
+                      className="p-1.5 rounded hover:bg-zinc-900 text-zinc-500 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Reset Zoom"
+                    >
+                      <RotateCcw size={14} />
+                    </button>
+                    <button
                       onClick={handleToggleClickZoom}
                       disabled={!isDataLoaded}
                       className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
-                        isClickZoomMode 
-                          ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' 
+                        isClickZoomMode
+                          ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30'
                           : 'hover:bg-zinc-900 text-zinc-500 hover:text-white'
                       }`}
                       title="Click to Zoom"
