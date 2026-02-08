@@ -13,11 +13,13 @@ from app.models import Strategy, StrategyCondition, BacktestResult, Optimization
 
 def _run_single_backtest(args: Tuple) -> Tuple[Dict[str, Any], BacktestResult]:
     """Run single backtest (worker function)"""
-    data, indicator_bank_dict, strategy_dict, param_combination = args
-    
-    # Rebuild indicator bank
+    data, indicator_bank_state, strategy_dict, param_combination = args
+
+    # Rebuild indicator bank with full state
     indicator_bank = IndicatorBank(data)
-    indicator_bank.indicators = indicator_bank_dict
+    indicator_bank.indicators = indicator_bank_state['indicators']
+    indicator_bank.timeframes = indicator_bank_state['timeframes']
+    indicator_bank._close_times_cache = indicator_bank_state['close_times_cache']
     
     # Rebuild strategy with params
     strategy = Strategy(**strategy_dict)
@@ -94,12 +96,16 @@ class Optimizer:
             for combo in combinations
         ]
         
-        # Prepare args for workers
+        # Prepare args for workers (full indicator bank state)
         strategy_dict = self.strategy.model_dump()
-        indicator_bank_dict = self.indicator_bank.indicators
-        
+        indicator_bank_state = {
+            'indicators': self.indicator_bank.indicators,
+            'timeframes': self.indicator_bank.timeframes,
+            'close_times_cache': self.indicator_bank._close_times_cache,
+        }
+
         args_list = [
-            (self.data, indicator_bank_dict, strategy_dict, combo)
+            (self.data, indicator_bank_state, strategy_dict, combo)
             for combo in param_combinations
         ]
         

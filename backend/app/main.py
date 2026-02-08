@@ -2,6 +2,9 @@
 SYSTEM_ALPHA Backend Server
 FastAPI + NumPy + Multiprocessing
 """
+import os
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any
@@ -11,64 +14,79 @@ import time
 from io import StringIO
 
 from app.models import (
-    BacktestRequest, OptimizationRequest, 
+    BacktestRequest, OptimizationRequest,
     BacktestResult, OptimizationResult
 )
 from app.indicators import IndicatorBank
 from app.backtest import BacktestEngine
 from app.optimizer import Optimizer
 
+# Global storage (in production, use Redis/DB)
+data_store: Dict[str, Any] = {}
+
+# CORS origins (restrict in production via CORS_ORIGINS env var)
+CORS_ORIGINS = os.environ.get(
+    "CORS_ORIGINS",
+    "http://localhost:5173,http://localhost:4000,http://127.0.0.1:5173"
+).split(",")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application startup/shutdown lifecycle"""
+    await _load_default_data()
+    yield
+
+
 # Initialize FastAPI
-app = FastAPI(title="SYSTEM_ALPHA Backend", version="1.0.0")
+app = FastAPI(title="SYSTEM_ALPHA Backend", version="1.0.0", lifespan=lifespan)
 
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Global storage (in production, use Redis/DB)
-data_store: Dict[str, Any] = {}
 
-# Auto-load default CSV on startup
-@app.on_event("startup")
-async def load_default_data():
+def _parse_csv_to_numpy(df: pd.DataFrame) -> Dict[str, np.ndarray]:
+    """Parse a DataFrame into numpy arrays for the backtest engine"""
+    df.columns = df.columns.str.lower().str.strip()
+    if 'datetime' in df.columns:
+        df.rename(columns={'datetime': 'time'}, inplace=True)
+
+    required_cols = ['time', 'open', 'high', 'low', 'close', 'volume']
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        raise ValueError(f"CSV must contain: {required_cols} (missing: {missing}, found: {list(df.columns)})")
+
+    if df['time'].dtype == 'object':
+        df['time'] = pd.to_datetime(df['time']).astype(np.int64) // 10**9
+    else:
+        df['time'] = df['time'].astype(np.int64)
+
+    return {
+        'time': df['time'].values,
+        'open': df['open'].values.astype(float),
+        'high': df['high'].values.astype(float),
+        'low': df['low'].values.astype(float),
+        'close': df['close'].values.astype(float),
+        'volume': df['volume'].values.astype(float),
+    }
+
+
+async def _load_default_data():
     """Load default CSV file on startup"""
-    import os
-    
     default_csv_path = os.path.join(os.path.dirname(__file__), '../../NQ2018.csv')
-    
+
     if os.path.exists(default_csv_path):
         print(f"🚀 Loading default data from {default_csv_path}...")
         try:
             df = pd.read_csv(default_csv_path)
-            
-            # Normalize column names
-            df.columns = df.columns.str.lower().str.strip()
-            if 'datetime' in df.columns:
-                df.rename(columns={'datetime': 'time'}, inplace=True)
-            
-            # Parse time column
-            if df['time'].dtype == 'object':
-                df['time'] = pd.to_datetime(df['time']).astype(np.int64) // 10**9
-            else:
-                df['time'] = df['time'].astype(np.int64)
-            
-            # Convert to numpy arrays
-            data = {
-                'time': df['time'].values,
-                'open': df['open'].values.astype(float),
-                'high': df['high'].values.astype(float),
-                'low': df['low'].values.astype(float),
-                'close': df['close'].values.astype(float),
-                'volume': df['volume'].values.astype(float)
-            }
-            
-            data_store['data'] = data
-            print(f"✅ Loaded {len(data['close'])} bars from default CSV")
+            data_store['data'] = _parse_csv_to_numpy(df)
+            print(f"✅ Loaded {len(data_store['data']['close'])} bars from default CSV")
         except Exception as e:
             print(f"❌ Failed to load default CSV: {e}")
     else:
@@ -90,51 +108,23 @@ async def upload_csv(file: UploadFile = File(...)):
     """Upload CSV and build indicator bank"""
     try:
         start_time = time.time()
-        
-        # Read CSV
+
         contents = await file.read()
         df = pd.read_csv(StringIO(contents.decode('utf-8')))
-        
-        # Normalize column names (handle 'datetime' or 'time')
-        df.columns = df.columns.str.lower().str.strip()
-        if 'datetime' in df.columns:
-            df.rename(columns={'datetime': 'time'}, inplace=True)
-        
-        # Validate columns
-        required_cols = ['time', 'open', 'high', 'low', 'close', 'volume']
-        if not all(col in df.columns for col in required_cols):
-            raise HTTPException(status_code=400, detail=f"CSV must contain: {required_cols} (found: {list(df.columns)})")
-        
-        # Parse time column (handle both Unix timestamp and datetime strings)
-        if df['time'].dtype == 'object':
-            # It's a string, parse as datetime
-            df['time'] = pd.to_datetime(df['time']).astype(np.int64) // 10**9
-        else:
-            # Already numeric, assume Unix timestamp in seconds
-            df['time'] = df['time'].astype(np.int64)
-        
-        # Convert to numpy arrays
-        data = {
-            'time': df['time'].values,
-            'open': df['open'].values.astype(float),
-            'high': df['high'].values.astype(float),
-            'low': df['low'].values.astype(float),
-            'close': df['close'].values.astype(float),
-            'volume': df['volume'].values.astype(float)
-        }
-        
-        # Store data (we'll build indicators on-demand during backtest/optimization)
+        data = _parse_csv_to_numpy(df)
         data_store['data'] = data
-        
+
         elapsed = time.time() - start_time
-        
+
         return {
             "success": True,
             "bars": len(data['close']),
             "elapsed_seconds": round(elapsed, 2),
             "message": f"✅ Loaded {len(data['close'])} bars in {elapsed:.2f}s (indicators will be built on-demand)"
         }
-    
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -185,7 +175,6 @@ def run_optimization(request: OptimizationRequest):
         # Build indicator bank on-demand (smart - only what's needed)
         print("🏗️ Building indicator bank for optimization...")
         strategy_dict = request.strategy.model_dump()
-        print(f"🔍 DEBUG - Strategy received: {strategy_dict}")
         indicator_bank = IndicatorBank(data)
         indicator_bank.build_smart(strategy_dict)
         
@@ -225,22 +214,25 @@ def get_data():
         raise HTTPException(status_code=400, detail="No data loaded")
     
     data = data_store['data']
-    
-    # Convert numpy arrays to list for JSON serialization
-    result = []
-    for i in range(len(data['time'])):
-        result.append({
-            'time': int(data['time'][i]),
-            'open': float(data['open'][i]),
-            'high': float(data['high'][i]),
-            'low': float(data['low'][i]),
-            'close': float(data['close'][i]),
-            'volume': float(data['volume'][i])
-        })
-    
+
+    # Vectorized conversion (much faster than row-by-row loop)
+    n = len(data['time'])
+    times = data['time'].astype(int).tolist()
+    opens = data['open'].tolist()
+    highs = data['high'].tolist()
+    lows = data['low'].tolist()
+    closes = data['close'].tolist()
+    volumes = data['volume'].tolist()
+
+    result = [
+        {'time': times[i], 'open': opens[i], 'high': highs[i],
+         'low': lows[i], 'close': closes[i], 'volume': volumes[i]}
+        for i in range(n)
+    ]
+
     return {
         "success": True,
-        "bars": len(result),
+        "bars": n,
         "data": result
     }
 

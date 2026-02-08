@@ -271,7 +271,7 @@ class IndicatorBank:
         """Get indicator for specific timeframe and align it to primary data"""
         full_key = f"{key}_{tf}"
         if full_key not in self.indicators:
-            return None
+            return np.full(self.length, np.nan)
             
         indicator_values = self.indicators[full_key]
         if tf == "DEF" or tf is None:
