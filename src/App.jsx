@@ -2113,6 +2113,9 @@ export default function App() {
     const updated = savedStrategies.filter(s => s.id !== id);
     setSavedStrategies(updated);
     localStorage.setItem('systemAlpha_savedStrategies', JSON.stringify(updated));
+    if (selectedStrategyId === id) {
+      setSelectedStrategyId(null);
+    }
   };
 
   const exportStrategies = () => {
