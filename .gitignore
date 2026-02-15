@@ -55,9 +55,9 @@ backend/app/__pycache__/
 data/
 **/data/*.json
 
-# Allow default dataset for website
+# Allow default datasets for website
 !public/data/
-!public/data/NQ_2023.csv
+!public/data/NQ_*.csv
 
 # Temp files
 /tmp/

@@ -1799,6 +1799,9 @@ export default function App() {
   const [processedData, setProcessedData] = useState([]);
   const [secondaryProcessedData, setSecondaryProcessedData] = useState([]);
   const [availableYears, setAvailableYears] = useState([]);
+  const [datasetYears, setDatasetYears] = useState([]); // Years available as CSV files on server
+  const [loadedDatasetYears, setLoadedDatasetYears] = useState([]); // Years currently loaded
+  const [loadingYear, setLoadingYear] = useState(null); // Year currently being fetched
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [isDataLoaded, setIsDataLoaded] = useState(false);
@@ -2003,28 +2006,45 @@ export default function App() {
       setSavedStrategies([d1Strategy, c1Strategy, b1Strategy, e1Strategy, a01Strategy, f1Strategy]);
     }
 
-    // Auto-load NQ 2023 data if available in public/data
-    const autoLoadData = async () => {
+    // Discover available yearly CSV files and auto-load 2023
+    const discoverAndLoad = async () => {
+      const possibleYears = [2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025];
+      const found = [];
+      await Promise.all(possibleYears.map(async (yr) => {
+        try {
+          const res = await fetch(`./data/NQ_${yr}.csv`, { method: 'HEAD' });
+          if (res.ok) found.push(yr);
+        } catch (e) { /* not available */ }
+      }));
+      found.sort();
+      setDatasetYears(found);
+      if (found.length === 0) return;
+
+      // Auto-load 2023 (or latest available)
+      const defaultYear = found.includes(2023) ? 2023 : found[found.length - 1];
       try {
         setLoading(true);
-        const response = await fetch('./data/NQ_2023.csv');
+        setLoadingMessage(`טוען נתונים ${defaultYear}...`);
+        const response = await fetch(`./data/NQ_${defaultYear}.csv`);
         if (response.ok) {
           const text = await response.text();
           const { data, years } = parsePriceCSV(text);
           if (data.length > 0) {
             setAvailableYears(years);
-            setConfig(prev => ({ ...prev, selectedYears: years.filter(y => y !== 2025) }));
+            setConfig(prev => ({ ...prev, selectedYears: years }));
             setRawData(data);
+            setLoadedDatasetYears([defaultYear]);
             setIsDataLoaded(true);
           }
         }
       } catch (e) {
-        // No default data available - user can upload manually
+        // Failed to load default year
       } finally {
         setLoading(false);
+        setLoadingMessage('');
       }
     };
-    autoLoadData();
+    discoverAndLoad();
   }, []);
 
   // פונקציות שמירה/טעינה/מחיקה של אסטרטגיות
@@ -2139,6 +2159,62 @@ export default function App() {
     };
     reader.readAsText(file);
     e.target.value = '';
+  };
+
+  const toggleDatasetYear = async (year) => {
+    const isLoaded = loadedDatasetYears.includes(year);
+    if (isLoaded) {
+      // Remove this year's data
+      if (loadedDatasetYears.length <= 1) return; // Don't allow removing last year
+      const newLoaded = loadedDatasetYears.filter(y => y !== year);
+      setLoadedDatasetYears(newLoaded);
+      // Rebuild rawData from remaining loaded years
+      setLoading(true);
+      setLoadingMessage('מעדכן נתונים...');
+      try {
+        const allData = [];
+        const allYears = new Set();
+        for (const yr of newLoaded) {
+          const res = await fetch(`./data/NQ_${yr}.csv`);
+          if (res.ok) {
+            const text = await res.text();
+            const { data, years } = parsePriceCSV(text);
+            allData.push(...data);
+            years.forEach(y => allYears.add(y));
+          }
+        }
+        allData.sort((a, b) => a.time - b.time);
+        const yearsArr = Array.from(allYears).sort();
+        setRawData(allData);
+        setAvailableYears(yearsArr);
+        setConfig(prev => ({ ...prev, selectedYears: yearsArr }));
+      } finally {
+        setLoading(false);
+        setLoadingMessage('');
+      }
+    } else {
+      // Load and add this year's data
+      setLoadingYear(year);
+      try {
+        const res = await fetch(`./data/NQ_${year}.csv`);
+        if (!res.ok) return;
+        const text = await res.text();
+        const { data, years } = parsePriceCSV(text);
+        if (data.length > 0) {
+          const newLoaded = [...loadedDatasetYears, year].sort();
+          setLoadedDatasetYears(newLoaded);
+          const merged = [...rawData, ...data].sort((a, b) => a.time - b.time);
+          const mergedYears = new Set([...availableYears, ...years]);
+          const yearsArr = Array.from(mergedYears).sort();
+          setRawData(merged);
+          setAvailableYears(yearsArr);
+          setConfig(prev => ({ ...prev, selectedYears: yearsArr }));
+          setIsDataLoaded(true);
+        }
+      } finally {
+        setLoadingYear(null);
+      }
+    }
   };
 
   const toggleAllConditions = (enabled, type = 'all') => {
@@ -3507,6 +3583,39 @@ export default function App() {
                         </div>
                     </div>
                   </div>
+
+                  {datasetYears.length > 0 && (
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider flex items-center justify-between">
+                        <span>LOAD YEARS</span>
+                        {loadedDatasetYears.length > 0 && (
+                          <span className="text-blue-500 font-mono">{loadedDatasetYears.join(', ')}</span>
+                        )}
+                      </label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {datasetYears.map(yr => {
+                          const isLoaded = loadedDatasetYears.includes(yr);
+                          const isLoading = loadingYear === yr;
+                          return (
+                            <button
+                              key={yr}
+                              onClick={() => toggleDatasetYear(yr)}
+                              disabled={isLoading || (isLoaded && loadedDatasetYears.length <= 1)}
+                              className={`px-2.5 py-1 text-[10px] rounded border transition-all font-mono ${
+                                isLoading
+                                  ? 'border-amber-500/30 bg-amber-500/10 text-amber-400 animate-pulse'
+                                  : isLoaded
+                                    ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                                    : 'bg-transparent border-zinc-800 text-zinc-600 hover:border-zinc-600 hover:text-zinc-400'
+                              } ${isLoaded && loadedDatasetYears.length <= 1 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                              {isLoading ? '...' : yr}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="space-y-4">
                     <div className="space-y-2">
