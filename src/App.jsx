@@ -2167,34 +2167,18 @@ export default function App() {
   const toggleDatasetYear = async (year) => {
     const isLoaded = loadedDatasetYears.includes(year);
     if (isLoaded) {
-      // Remove this year's data
+      // Remove this year's data (filter locally - no re-fetch needed)
       if (loadedDatasetYears.length <= 1) return; // Don't allow removing last year
       const newLoaded = loadedDatasetYears.filter(y => y !== year);
       setLoadedDatasetYears(newLoaded);
-      // Rebuild rawData from remaining loaded years
-      setLoading(true);
-      setLoadingMessage('מעדכן נתונים...');
-      try {
-        const allData = [];
-        const allYears = new Set();
-        for (const yr of newLoaded) {
-          const res = await fetch(`./data/NQ_${yr}.csv`);
-          if (res.ok) {
-            const text = await res.text();
-            const { data, years } = parsePriceCSV(text);
-            allData.push(...data);
-            years.forEach(y => allYears.add(y));
-          }
-        }
-        allData.sort((a, b) => a.time - b.time);
-        const yearsArr = Array.from(allYears).sort();
-        setRawData(allData);
-        setAvailableYears(yearsArr);
-        setConfig(prev => ({ ...prev, selectedYears: yearsArr }));
-      } finally {
-        setLoading(false);
-        setLoadingMessage('');
-      }
+      // Filter out bars from this year
+      const filtered = rawData.filter(bar => {
+        const d = new Date(bar.time * 1000);
+        return d.getUTCFullYear() !== year;
+      });
+      setRawData(filtered);
+      setAvailableYears(newLoaded);
+      setConfig(prev => ({ ...prev, selectedYears: newLoaded }));
     } else {
       // Load and add this year's data
       setLoadingYear(year);
@@ -2202,16 +2186,14 @@ export default function App() {
         const res = await fetch(`./data/NQ_${year}.csv`);
         if (!res.ok) return;
         const text = await res.text();
-        const { data, years } = parsePriceCSV(text);
+        const { data } = parsePriceCSV(text);
         if (data.length > 0) {
           const newLoaded = [...loadedDatasetYears, year].sort();
           setLoadedDatasetYears(newLoaded);
           const merged = [...rawData, ...data].sort((a, b) => a.time - b.time);
-          const mergedYears = new Set([...availableYears, ...years]);
-          const yearsArr = Array.from(mergedYears).sort();
           setRawData(merged);
-          setAvailableYears(yearsArr);
-          setConfig(prev => ({ ...prev, selectedYears: yearsArr }));
+          setAvailableYears(newLoaded);
+          setConfig(prev => ({ ...prev, selectedYears: newLoaded }));
           setIsDataLoaded(true);
         }
       } finally {
@@ -3686,22 +3668,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {availableYears.length > 0 && (
-                    <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">YEARS</label>
-                        <div className="flex flex-wrap gap-1.5">
-                            {availableYears.map(y => (
-                            <button
-                                key={y}
-                                onClick={() => toggleYear(y)}
-                                className={`px-2 py-0.5 text-[10px] rounded border transition-all font-mono ${config.selectedYears.includes(y) ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' : 'bg-transparent border-zinc-800 text-zinc-600 hover:border-zinc-700'}`}
-                            >
-                                {y}
-                            </button>
-                            ))}
-                        </div>
-                    </div>
-                  )}
               </>
           )}
 
