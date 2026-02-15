@@ -1790,6 +1790,7 @@ export default function App() {
   const tradeLineSeriesRef = useRef(null);
   const indicatorSeriesRef = useRef({}); // אחסון series של אינדיקטורים
   const sidebarScrollRef = useRef(null); // Ref לפאנל הצידי לגלילה אוטומטית
+  const importInputRef = useRef(null);
   
   const [rawData, setRawData] = useState([]);
   // הנתונים אחרי פילטרים (שנים / RTH / early close). חובה כדי ש-MTF (למשל RSI 5m על Primary=1)
@@ -2088,10 +2089,56 @@ export default function App() {
 
   const deleteStrategy = (id) => {
     if (!confirm('האם אתה בטוח שברצונך למחוק את האסטרטגיה?')) return;
-    
+
     const updated = savedStrategies.filter(s => s.id !== id);
     setSavedStrategies(updated);
     localStorage.setItem('systemAlpha_savedStrategies', JSON.stringify(updated));
+  };
+
+  const exportStrategies = () => {
+    if (savedStrategies.length === 0) {
+      alert('אין אסטרטגיות לייצוא');
+      return;
+    }
+    const exportData = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      strategies: savedStrategies
+    };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const date = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `system_alpha_strategies_${date}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importStrategies = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const parsed = JSON.parse(ev.target.result);
+        const incoming = parsed.strategies || parsed;
+        if (!Array.isArray(incoming) || incoming.length === 0) {
+          alert('הקובץ לא מכיל אסטרטגיות תקינות');
+          return;
+        }
+        const existingIds = new Set(savedStrategies.map(s => s.id));
+        const newStrategies = incoming.filter(s => !existingIds.has(s.id));
+        const updated = [...savedStrategies, ...newStrategies];
+        setSavedStrategies(updated);
+        localStorage.setItem('systemAlpha_savedStrategies', JSON.stringify(updated));
+        alert(`יובאו ${newStrategies.length} אסטרטגיות חדשות (${incoming.length - newStrategies.length} כבר קיימות)`);
+      } catch (err) {
+        alert('שגיאה בקריאת הקובץ: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
   };
 
   const toggleAllConditions = (enabled, type = 'all') => {
@@ -3601,6 +3648,23 @@ export default function App() {
                                     </button>
                                 )}
                                 
+                                <button
+                                    onClick={exportStrategies}
+                                    className="p-2 text-zinc-500 hover:text-emerald-400 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 rounded-md transition-all group/export"
+                                    title="ייצוא אסטרטגיות"
+                                >
+                                    <Download size={14} className="group-hover/export:scale-110 transition-transform" />
+                                </button>
+
+                                <button
+                                    onClick={() => importInputRef.current?.click()}
+                                    className="p-2 text-zinc-500 hover:text-amber-400 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 rounded-md transition-all group/import"
+                                    title="ייבוא אסטרטגיות"
+                                >
+                                    <Upload size={14} className="group-hover/import:scale-110 transition-transform" />
+                                </button>
+                                <input type="file" accept=".json" ref={importInputRef} onChange={importStrategies} className="hidden" />
+
                                 <button
                                     onClick={resetStrategy}
                                     className="p-2 text-zinc-500 hover:text-zinc-200 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 rounded-md transition-all group/reset"
