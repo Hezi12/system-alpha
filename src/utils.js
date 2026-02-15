@@ -48,13 +48,34 @@ export const generateOptimizationValues = (range) => {
 };
 
 /**
- * Parse CSV text (NinjaTrader format) into array of { time, open, high, low, close, volume }
- * Returns { data, years } where years is a sorted array of unique years found
+ * Parse a single CSV row into a data point
  */
-export const parsePriceCSV = (text) => {
-  const rows = text.split('\n');
-  const headerRow = rows[0].toLowerCase().split(',');
-  const colMap = {
+const parseCSVRow = (cols, colMap) => {
+  const dateStr = cols[colMap.date];
+  if (!dateStr) return null;
+  const [datePart, timePart] = dateStr.split(' ');
+  if (!datePart || !timePart) return null;
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hour, minute, second = 0] = timePart.split(':').map(Number);
+  const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  if (isNaN(utcDate.getTime())) return null;
+  return {
+    time: utcDate.getTime() / 1000,
+    open: parseFloat(cols[colMap.open]),
+    high: parseFloat(cols[colMap.high]),
+    low: parseFloat(cols[colMap.low]),
+    close: parseFloat(cols[colMap.close]),
+    volume: colMap.volume !== -1 ? parseFloat(cols[colMap.volume]) : 0,
+    year: utcDate.getUTCFullYear()
+  };
+};
+
+/**
+ * Build column map from CSV header
+ */
+const buildColMap = (headerLine) => {
+  const headerRow = headerLine.toLowerCase().split(',');
+  return {
     date: headerRow.findIndex(c => c.includes('date') || c.includes('time') || c.includes('datetime')),
     open: headerRow.findIndex(c => c.includes('open')),
     high: headerRow.findIndex(c => c.includes('high')),
@@ -62,6 +83,16 @@ export const parsePriceCSV = (text) => {
     close: headerRow.findIndex(c => c.includes('close')),
     volume: headerRow.findIndex(c => c.includes('vol'))
   };
+};
+
+/**
+ * Parse CSV text (NinjaTrader format) into array of { time, open, high, low, close, volume }
+ * Returns { data, years } where years is a sorted array of unique years found
+ * Synchronous version for small files
+ */
+export const parsePriceCSV = (text) => {
+  const rows = text.split('\n');
+  const colMap = buildColMap(rows[0]);
   const parsedData = [];
   const years = new Set();
   for (let i = 1; i < rows.length; i++) {
@@ -70,26 +101,65 @@ export const parsePriceCSV = (text) => {
     const cols = row.split(',');
     if (cols.length < 5) continue;
     try {
-      const dateStr = cols[colMap.date];
-      if (!dateStr) continue;
-      const [datePart, timePart] = dateStr.split(' ');
-      if (!datePart || !timePart) continue;
-      const [year, month, day] = datePart.split('-').map(Number);
-      const [hour, minute, second = 0] = timePart.split(':').map(Number);
-      const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
-      if (!isNaN(utcDate.getTime())) {
-        years.add(utcDate.getUTCFullYear());
-        parsedData.push({
-          time: utcDate.getTime() / 1000,
-          open: parseFloat(cols[colMap.open]),
-          high: parseFloat(cols[colMap.high]),
-          low: parseFloat(cols[colMap.low]),
-          close: parseFloat(cols[colMap.close]),
-          volume: colMap.volume !== -1 ? parseFloat(cols[colMap.volume]) : 0
-        });
+      const point = parseCSVRow(cols, colMap);
+      if (point) {
+        years.add(point.year);
+        delete point.year;
+        parsedData.push(point);
       }
     } catch (err) { continue; }
   }
   parsedData.sort((a, b) => a.time - b.time);
   return { data: parsedData, years: Array.from(years).sort() };
+};
+
+/**
+ * Async CSV parser - processes in chunks to prevent UI freeze on large files.
+ * onProgress(parsed, total) is called periodically with progress info.
+ * Returns { data, years } like parsePriceCSV.
+ */
+export const parsePriceCSVAsync = (text, onProgress = null) => {
+  return new Promise((resolve) => {
+    const rows = text.split('\n');
+    const totalRows = rows.length - 1; // minus header
+    const colMap = buildColMap(rows[0]);
+    const parsedData = [];
+    const years = new Set();
+    const CHUNK_SIZE = 50000; // rows per chunk
+    let currentIndex = 1;
+
+    const processChunk = () => {
+      const end = Math.min(currentIndex + CHUNK_SIZE, rows.length);
+      for (let i = currentIndex; i < end; i++) {
+        const row = rows[i].trim();
+        if (!row) continue;
+        const cols = row.split(',');
+        if (cols.length < 5) continue;
+        try {
+          const point = parseCSVRow(cols, colMap);
+          if (point) {
+            years.add(point.year);
+            delete point.year;
+            parsedData.push(point);
+          }
+        } catch (err) { continue; }
+      }
+      currentIndex = end;
+
+      if (onProgress) {
+        onProgress(parsedData.length, totalRows);
+      }
+
+      if (currentIndex < rows.length) {
+        // Yield to browser for UI updates
+        setTimeout(processChunk, 0);
+      } else {
+        // Done - sort and resolve
+        parsedData.sort((a, b) => a.time - b.time);
+        resolve({ data: parsedData, years: Array.from(years).sort() });
+      }
+    };
+
+    processChunk();
+  });
 };

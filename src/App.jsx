@@ -11,7 +11,7 @@ import {
 import ReportAnalyzer from './components/ReportAnalyzer';
 import DetailedReport from './components/DetailedReport';
 import { COLORS, FOMC_DATES, TICK_SIZE } from './constants';
-import { formatDateUTC, parseParamValue, parseOptimizationRange, generateOptimizationValues, parsePriceCSV } from './utils';
+import { formatDateUTC, parseParamValue, parseOptimizationRange, generateOptimizationValues, parsePriceCSV, parsePriceCSVAsync } from './utils';
 
 // --- מנוע עיבוד נתונים ---
 // Aggregation rules (תואם לנינג'ה טריידר):
@@ -1799,6 +1799,7 @@ export default function App() {
   const [secondaryProcessedData, setSecondaryProcessedData] = useState([]);
   const [availableYears, setAvailableYears] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [indicatorBank, setIndicatorBank] = useState(null); // Global indicator bank
 
@@ -1932,6 +1933,19 @@ export default function App() {
       ]
     };
 
+    const f1Strategy = {
+      id: 'f1_macd_volume_trailing',
+      name: 'F1 - MACD + Volume + Trailing Stop',
+      entryConditions: [
+        { id: 'macd_cross_above_signal', params: {}, enabled: true, visible: true, timeframe: null },
+        { id: 'volume_above_avg', params: { period: 20 }, enabled: true, visible: true, timeframe: null }
+      ],
+      exitConditions: [
+        { id: 'stop_loss_ticks', params: { ticks: 80 }, enabled: true, visible: true },
+        { id: 'trailing_stop_ticks', params: { triggerTicks: 100, distanceTicks: 80 }, enabled: true, visible: true }
+      ]
+    };
+
     const a01Strategy = {
       id: 'a01_volume_spike',
       name: 'A01 - Volume Spike Long',
@@ -1980,9 +1994,12 @@ export default function App() {
       if (!strategies.find(s => s.id === 'e1_daily_change_macd')) {
         strategies.unshift(e1Strategy);
       }
+      if (!strategies.find(s => s.id === 'f1_macd_volume_trailing')) {
+        strategies.unshift(f1Strategy);
+      }
       setSavedStrategies(strategies);
     } else {
-      setSavedStrategies([d1Strategy, c1Strategy, b1Strategy, e1Strategy, a01Strategy]);
+      setSavedStrategies([d1Strategy, c1Strategy, b1Strategy, e1Strategy, a01Strategy, f1Strategy]);
     }
 
     // Auto-load NQ 2023 data if available in public/data
@@ -2549,9 +2566,12 @@ export default function App() {
     setSecondaryProcessedData(processedSecondary);
     
     // Build indicator bank once for primary data (like NinjaTrader)
+    // Defer to next frame so chart renders first, preventing UI freeze on large datasets
     if (processedPrimary.length > 0) {
-      const bank = buildIndicatorBank(processedPrimary);
-      setIndicatorBank(bank);
+      setTimeout(() => {
+        const bank = buildIndicatorBank(processedPrimary);
+        setIndicatorBank(bank);
+      }, 100);
     }
 
     if (candleSeriesRef.current) {
@@ -2676,38 +2696,57 @@ export default function App() {
     if (!file) return;
 
     setLoading(true);
-    
+    const fileSizeMB = (file.size / (1024 * 1024)).toFixed(0);
+    setLoadingMessage(`קורא קובץ (${fileSizeMB}MB)...`);
+
     try {
-      // Upload to backend and build indicators there (this may take 20-30 seconds for large files)
-      const response = await uploadCSV(file);
-      
-      // Now read the file locally for display
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const { data, years } = parsePriceCSV(e.target.result);
-          setAvailableYears(years);
-          setConfig(prev => ({ ...prev, selectedYears: years.filter(y => y !== 2025) }));
-          setRawData(data);
-          setIsDataLoaded(true);
-          setLoading(false);
-        } catch (error) {
-          console.error('Error parsing CSV:', error);
-          setLoading(false);
-          alert(`שגיאה בעיבוד הקובץ: ${error.message}`);
-        }
-      };
+      // Upload to backend in parallel with local parsing
+      const uploadPromise = uploadCSV(file).catch(err => {
+        console.warn('Backend upload failed (will retry on backtest):', err);
+        return null;
+      });
 
-      reader.onerror = () => {
-        setLoading(false);
-        alert('שגיאה בקריאת הקובץ');
-      };
+      // Read the file locally for display
+      const text = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = () => reject(new Error('שגיאה בקריאת הקובץ'));
+        reader.readAsText(file);
+      });
 
-      reader.readAsText(file);
+      setLoadingMessage('מעבד נתונים...');
+
+      // Use async parser for large files (>5MB), sync for small
+      let data, years;
+      if (file.size > 5 * 1024 * 1024) {
+        const result = await parsePriceCSVAsync(text, (parsed, total) => {
+          const pct = Math.round((parsed / total) * 100);
+          setLoadingMessage(`מעבד נתונים... ${parsed.toLocaleString()} שורות (${pct}%)`);
+        });
+        data = result.data;
+        years = result.years;
+      } else {
+        const result = parsePriceCSV(text);
+        data = result.data;
+        years = result.years;
+      }
+
+      setLoadingMessage(`נטען בהצלחה: ${data.length.toLocaleString()} נרות`);
+      setAvailableYears(years);
+      setConfig(prev => ({ ...prev, selectedYears: years.filter(y => y !== 2025) }));
+      setRawData(data);
+      setIsDataLoaded(true);
+
+      // Wait for backend upload to finish
+      await uploadPromise;
+
+      setLoading(false);
+      setLoadingMessage('');
     } catch (error) {
       console.error('❌ Upload failed:', error);
       alert(`שגיאה בהעלאת הקובץ: ${error.message}`);
       setLoading(false);
+      setLoadingMessage('');
     }
   };
 
@@ -4289,7 +4328,9 @@ export default function App() {
                  <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-30 backdrop-blur-sm">
                     <div className="flex flex-col items-center gap-3">
                        <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                       <span className="text-[10px] font-mono text-blue-500 tracking-wider animate-pulse">PROCESSING...</span>
+                       <span className="text-[10px] font-mono text-blue-500 tracking-wider animate-pulse">
+                         {loadingMessage || 'PROCESSING...'}
+                       </span>
                     </div>
                  </div>
                )}

@@ -18,6 +18,7 @@
 | VOLUME | volume_spike | B1 |
 | VOLUME | volume_above_avg | C1 |
 | STOP | stop_loss_ticks, take_profit_ticks | B1, C1, E1 |
+| STOP | trailing_stop_ticks | F1 |
 
 ## תנאים שעוד לא נבדקו מול NinjaTrader
 
@@ -30,7 +31,7 @@
 | VOLUME | volume_profile_ratio |
 | PRICE | min_green_candles, higher_high, lower_low |
 | TIME | time (exact) |
-| STOP | trailing_stop_ticks, session_close_exit |
+| STOP | session_close_exit |
 
 ## אסטרטגיות
 
@@ -40,3 +41,4 @@
 | C1 | time_range, macd_cross_above/below_signal, price_above_ema, atr_in_range, volume_above_avg, candle_body_min_ticks, SL, TP | ✓ נוצר - תוצאות קרובות (פער MACD ידוע) |
 | D1 | time_range, macd_cross_above/below (histogram), SL, TP | ✓ נוצר - ראה תחקיר D1 |
 | E1 | time_range, market_change_percent_range, macd_cross_above/below_signal, SL, TP | ✓ נוצר |
+| F1 | macd_cross_above_signal, volume_above_avg, trailing_stop_ticks | ✓ נוצר - ממתין לבדיקה |
