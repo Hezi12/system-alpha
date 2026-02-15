@@ -1870,140 +1870,15 @@ export default function App() {
     }
   }, []);
 
-  // טעינת אסטרטגיות שמורות
+  // טעינת אסטרטגיות שמורות מ-localStorage בלבד
   useEffect(() => {
-    const d1Strategy = {
-      id: 'd1_macd_only_test',
-      name: 'D1 - MACD בלבד (בדיקת פער)',
-      entryConditions: [
-        { id: 'time_range', params: { startTime: 830, endTime: 1340 }, enabled: true, visible: true, timeframe: null },
-        { id: 'macd_cross_above_signal', params: {}, enabled: true, visible: true, timeframe: null }
-      ],
-      exitConditions: [
-        { id: 'stop_loss_ticks', params: { ticks: 80 }, enabled: true, visible: true },
-        { id: 'take_profit_ticks', params: { ticks: 160 }, enabled: true, visible: true }
-      ]
-    };
-
-    const c1Strategy = {
-      id: 'c1_macd_ema_atr_volume',
-      name: 'C1 - MACD Cross + EMA + ATR + Volume (כיסוי ספרייה)',
-      entryConditions: [
-        { id: 'time_range', params: { startTime: 830, endTime: 1340 }, enabled: true, visible: true, timeframe: null },
-        { id: 'macd_cross_above_signal', params: {}, enabled: true, visible: true, timeframe: null },
-        { id: 'price_above_ema', params: { period: 20 }, enabled: true, visible: true, timeframe: null },
-        { id: 'atr_in_range', params: { period: 30, min: 12, max: 55 }, enabled: true, visible: true, timeframe: null },
-        { id: 'volume_above_avg', params: { period: 20 }, enabled: true, visible: true, timeframe: null },
-        { id: 'candle_body_min_ticks', params: { minTicks: 20 }, enabled: true, visible: true, timeframe: null }
-      ],
-      exitConditions: [
-        { id: 'macd_cross_below_signal', params: {}, enabled: true, visible: true, timeframe: null },
-        { id: 'stop_loss_ticks', params: { ticks: 80 }, enabled: true, visible: true },
-        { id: 'take_profit_ticks', params: { ticks: 160 }, enabled: true, visible: true }
-      ]
-    };
-
-    const b1Strategy = {
-      id: 'b1_multi_filter_long',
-      name: 'B1 - RSI Oversold + ADX + Volume Spike + Pullback',
-      entryConditions: [
-        { id: 'time_range', params: { startTime: 830, endTime: 1340 }, enabled: true, visible: true, timeframe: null },
-        { id: 'rsi_below', params: { period: 14, threshold: 30 }, enabled: true, visible: true, timeframe: null },
-        { id: 'adx_range', params: { period: 14, min: 18, max: 55 }, enabled: true, visible: true, timeframe: null },
-        { id: 'green_candle', params: {}, enabled: true, visible: true, timeframe: null },
-        { id: 'volume_spike', params: { period: 16, multiplier: 1.6 }, enabled: true, visible: true, timeframe: null },
-        { id: 'min_red_candles', params: { minCount: 2, lookback: 6 }, enabled: true, visible: true, timeframe: null },
-        { id: 'bar_range_ticks_range', params: { minTicks: 15, maxTicks: 250 }, enabled: true, visible: true, timeframe: null }
-      ],
-      exitConditions: [
-        { id: 'rsi_above', params: { period: 14, threshold: 68 }, enabled: true, visible: true, timeframe: null },
-        { id: 'stop_loss_ticks', params: { ticks: 60 }, enabled: true, visible: true },
-        { id: 'take_profit_ticks', params: { ticks: 120 }, enabled: true, visible: true }
-      ]
-    };
-
-    const e1Strategy = {
-      id: 'e1_daily_change_macd',
-      name: 'E1 - שינוי יומי % + MACD Cross',
-      entryConditions: [
-        { id: 'time_range', params: { startTime: 830, endTime: 1340 }, enabled: true, visible: true, timeframe: null },
-        { id: 'market_change_percent_range', params: { minPercent: -2.1, maxPercent: 10 }, enabled: true, visible: true, timeframe: null },
-        { id: 'macd_cross_above_signal', params: {}, enabled: true, visible: true, timeframe: null }
-      ],
-      exitConditions: [
-        { id: 'macd_cross_below_signal', params: {}, enabled: true, visible: true, timeframe: null },
-        { id: 'stop_loss_ticks', params: { ticks: 80 }, enabled: true, visible: true },
-        { id: 'take_profit_ticks', params: { ticks: 160 }, enabled: true, visible: true }
-      ]
-    };
-
-    const f1Strategy = {
-      id: 'f1_macd_volume_trailing',
-      name: 'F1 - MACD + Volume + Trailing Stop',
-      entryConditions: [
-        { id: 'macd_cross_above_signal', params: {}, enabled: true, visible: true, timeframe: null },
-        { id: 'volume_above_avg', params: { period: 20 }, enabled: true, visible: true, timeframe: null }
-      ],
-      exitConditions: [
-        { id: 'stop_loss_ticks', params: { ticks: 80 }, enabled: true, visible: true },
-        { id: 'trailing_stop_ticks', params: { triggerTicks: 100, distanceTicks: 80 }, enabled: true, visible: true }
-      ]
-    };
-
-    const a01Strategy = {
-      id: 'a01_volume_spike',
-      name: 'A01 - Volume Spike Long',
-      entryConditions: [
-        { id: 'green_candle', params: {}, enabled: true, visible: true },
-        { id: 'candle_body_min_ticks', params: { minTicks: 34 }, enabled: true, visible: true },
-        { id: 'volume_spike', params: { period: 16, multiplier: 1.6 }, enabled: true, visible: true },
-        // פילטרים על Primary Timeframe (כבויים כברירת מחדל)
-        { id: 'adx_range', params: { period: 14, min: 16, max: 56 }, enabled: false, visible: false, timeframe: null },
-        { id: 'market_change_percent_range', params: { minPercent: -2.1, maxPercent: 10.0 }, enabled: false, visible: false, timeframe: null },
-        { id: 'min_red_candles', params: { minCount: 1, lookback: 10 }, enabled: false, visible: false, timeframe: null },
-        { id: 'volume_profile_ratio', params: { lookback: 25, minRatio: 0.7 }, enabled: false, visible: false, timeframe: null },
-        { id: 'bar_range_ticks_range', params: { minTicks: 12, maxTicks: 300 }, enabled: false, visible: false, timeframe: null },
-        // פילטרים על 5 דקות (כבויים כברירת מחדל)
-        { id: 'atr_in_range', params: { period: 30, min: 12, max: 55 }, enabled: false, visible: false, timeframe: '5' },
-        { id: 'adx_range', params: { period: 22, min: 1, max: 33 }, enabled: false, visible: false, timeframe: '5' },
-        { id: 'rsi_in_range', params: { period: 14, min: 1, max: 84 }, enabled: false, visible: false, timeframe: '5' },
-        { id: 'min_green_candles', params: { minCount: 6, lookback: 17 }, enabled: false, visible: false, timeframe: '5' },
-        // פילטרים על 15 דקות (כבויים כברירת מחדל)
-        { id: 'rsi_in_range', params: { period: 20, min: 25, max: 74 }, enabled: false, visible: false, timeframe: '15' },
-        { id: 'atr_in_range', params: { period: 14, min: 19, max: 94 }, enabled: false, visible: false, timeframe: '15' },
-        { id: 'adx_range', params: { period: 10, min: 11, max: 71 }, enabled: false, visible: false, timeframe: '15' }
-      ],
-      exitConditions: [
-        { id: 'stop_loss_ticks', params: { ticks: 60 }, enabled: true, visible: true },
-        { id: 'session_close_exit', params: {}, enabled: true, visible: true }
-      ]
-    };
-
     const saved = localStorage.getItem('systemAlpha_savedStrategies');
     if (saved) {
-      const strategies = JSON.parse(saved);
-      // הוספת אסטרטגיות ברירת מחדל רק אם הן לא קיימות כבר
-      if (!strategies.find(s => s.id === 'd1_macd_only_test')) {
-        strategies.unshift(d1Strategy);
+      try {
+        setSavedStrategies(JSON.parse(saved));
+      } catch (e) {
+        setSavedStrategies([]);
       }
-      if (!strategies.find(s => s.id === 'c1_macd_ema_atr_volume')) {
-        strategies.unshift(c1Strategy);
-      }
-      if (!strategies.find(s => s.id === 'b1_multi_filter_long')) {
-        strategies.unshift(b1Strategy);
-      }
-      if (!strategies.find(s => s.id === 'a01_volume_spike')) {
-        strategies.unshift(a01Strategy);
-      }
-      if (!strategies.find(s => s.id === 'e1_daily_change_macd')) {
-        strategies.unshift(e1Strategy);
-      }
-      if (!strategies.find(s => s.id === 'f1_macd_volume_trailing')) {
-        strategies.unshift(f1Strategy);
-      }
-      setSavedStrategies(strategies);
-    } else {
-      setSavedStrategies([d1Strategy, c1Strategy, b1Strategy, e1Strategy, a01Strategy, f1Strategy]);
     }
 
     // Discover available yearly CSV files and auto-load 2023
