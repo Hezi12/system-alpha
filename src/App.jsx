@@ -3598,81 +3598,87 @@ export default function App() {
                 <div className="space-y-3">
                     {/* Saved Strategies */}
                     {/* Saved Strategies - Minimalist Dropdown */}
-                    <div className="space-y-2 pb-2 border-b border-zinc-800/50">
-                        <div className="relative group/strat flex items-center gap-2">
-                            <div className="relative flex-1 group/select">
-                                <select
-                                    onChange={(e) => {
-                                        const selected = savedStrategies.find(s => s.id === e.target.value);
-                                        if (selected) loadStrategy(selected);
-                                    }}
-                                    value={selectedStrategyId || ""}
-                                    className="w-full bg-zinc-900/80 border border-zinc-800 text-zinc-200 text-[11px] px-3 py-2 rounded-md focus:border-blue-500/50 outline-none appearance-none cursor-pointer hover:bg-zinc-800 transition-all text-right pr-3 pl-8"
-                                >
-                                    <option value="" disabled={!!selectedStrategyId}>📁 {selectedStrategyId ? 'אסטרטגיה טעונה' : 'בחר אסטרטגיה...'}</option>
-                                    {savedStrategies.map(strategy => (
-                                        <option key={strategy.id} value={strategy.id}>
-                                            {strategy.name}
-                                        </option>
-                                    ))}
-                                </select>
-                                <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500">
-                                    <ChevronDown size={14} />
-                                </div>
-                                
-                                <button
-                                    onClick={() => setShowSaveDialog(true)}
-                                    className="absolute -right-2 -top-2 p-1 bg-zinc-900 border border-zinc-800 rounded-full text-zinc-500 hover:text-blue-400 opacity-0 group-hover/select:opacity-100 transition-all shadow-xl z-10"
-                                    title="שמור כאסטרטגיה חדשה"
-                                >
-                                    <Plus size={10} />
-                                </button>
+                    <div className="space-y-1.5 pb-2 border-b border-zinc-800/50">
+                        {/* Row 1: Dropdown */}
+                        <div className="relative group/select">
+                            <select
+                                onChange={(e) => {
+                                    const selected = savedStrategies.find(s => s.id === e.target.value);
+                                    if (selected) loadStrategy(selected);
+                                }}
+                                value={selectedStrategyId || ""}
+                                className="w-full bg-zinc-900/80 border border-zinc-800 text-zinc-200 text-[11px] px-3 py-2 rounded-md focus:border-blue-500/50 outline-none appearance-none cursor-pointer hover:bg-zinc-800 transition-all text-right pr-3 pl-8"
+                            >
+                                <option value="" disabled={!!selectedStrategyId}>📁 {selectedStrategyId ? 'אסטרטגיה טעונה' : 'בחר אסטרטגיה...'}</option>
+                                {savedStrategies.map(strategy => (
+                                    <option key={strategy.id} value={strategy.id}>
+                                        {strategy.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500">
+                                <ChevronDown size={14} />
                             </div>
+                        </div>
 
-                            <div className="flex items-center gap-1.5">
-                                <button
-                                    onClick={() => setShowSaveDialog(true)}
-                                    className="p-2 text-zinc-500 hover:text-blue-400 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 rounded-md transition-all group/saveas"
-                                    title="שמור כאסטרטגיה חדשה"
-                                >
-                                    <Plus size={14} className="group-hover/saveas:scale-110 transition-transform" />
-                                </button>
+                        {/* Row 2: Action buttons */}
+                        <div className="flex items-center gap-1.5">
+                            <button
+                                onClick={() => setShowSaveDialog(true)}
+                                className="p-2 text-zinc-500 hover:text-blue-400 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 rounded-md transition-all group/saveas"
+                                title="שמור כאסטרטגיה חדשה"
+                            >
+                                <Plus size={14} className="group-hover/saveas:scale-110 transition-transform" />
+                            </button>
 
-                                {selectedStrategyId && (
-                                    <button
-                                        onClick={quickSaveStrategy}
-                                        className="p-2 text-zinc-500 hover:text-blue-400 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 rounded-md transition-all group/save"
-                                        title="שמור שינויים באסטרטגיה"
-                                    >
-                                        <Save size={14} className="group-hover/save:scale-110 transition-transform" />
-                                    </button>
-                                )}
-                                
+                            {selectedStrategyId && (
                                 <button
-                                    onClick={exportStrategies}
-                                    className="p-2 text-zinc-500 hover:text-emerald-400 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 rounded-md transition-all group/export"
-                                    title="ייצוא אסטרטגיות"
+                                    onClick={quickSaveStrategy}
+                                    className="p-2 text-zinc-500 hover:text-blue-400 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 rounded-md transition-all group/save"
+                                    title="שמור שינויים באסטרטגיה"
                                 >
-                                    <Download size={14} className="group-hover/export:scale-110 transition-transform" />
+                                    <Save size={14} className="group-hover/save:scale-110 transition-transform" />
                                 </button>
+                            )}
 
+                            {selectedStrategyId && (
                                 <button
-                                    onClick={() => importInputRef.current?.click()}
-                                    className="p-2 text-zinc-500 hover:text-amber-400 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 rounded-md transition-all group/import"
-                                    title="ייבוא אסטרטגיות"
+                                    onClick={() => deleteStrategy(selectedStrategyId)}
+                                    className="p-2 text-zinc-500 hover:text-red-400 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 rounded-md transition-all group/delete"
+                                    title="מחק אסטרטגיה"
                                 >
-                                    <Upload size={14} className="group-hover/import:scale-110 transition-transform" />
+                                    <Trash2 size={14} className="group-hover/delete:scale-110 transition-transform" />
                                 </button>
-                                <input type="file" accept=".json" ref={importInputRef} onChange={importStrategies} className="hidden" />
+                            )}
 
-                                <button
-                                    onClick={resetStrategy}
-                                    className="p-2 text-zinc-500 hover:text-zinc-200 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 rounded-md transition-all group/reset"
-                                    title="חזור לברירת מחדל / סגור אסטרטגיה"
-                                >
-                                    <RotateCcw size={14} className="group-hover/reset:rotate-[-45deg] transition-transform" />
-                                </button>
-                            </div>
+                            <div className="w-px h-5 bg-zinc-800 mx-0.5" />
+
+                            <button
+                                onClick={exportStrategies}
+                                className="p-2 text-zinc-500 hover:text-emerald-400 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 rounded-md transition-all group/export"
+                                title="ייצוא אסטרטגיות"
+                            >
+                                <Download size={14} className="group-hover/export:scale-110 transition-transform" />
+                            </button>
+
+                            <button
+                                onClick={() => importInputRef.current?.click()}
+                                className="p-2 text-zinc-500 hover:text-amber-400 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 rounded-md transition-all group/import"
+                                title="ייבוא אסטרטגיות"
+                            >
+                                <Upload size={14} className="group-hover/import:scale-110 transition-transform" />
+                            </button>
+                            <input type="file" accept=".json" ref={importInputRef} onChange={importStrategies} className="hidden" />
+
+                            <div className="w-px h-5 bg-zinc-800 mx-0.5" />
+
+                            <button
+                                onClick={resetStrategy}
+                                className="p-2 text-zinc-500 hover:text-zinc-200 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 rounded-md transition-all group/reset"
+                                title="חזור לברירת מחדל / סגור אסטרטגיה"
+                            >
+                                <RotateCcw size={14} className="group-hover/reset:rotate-[-45deg] transition-transform" />
+                            </button>
                         </div>
 
                         {showSaveDialog && (
