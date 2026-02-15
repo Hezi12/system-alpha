@@ -2168,17 +2168,23 @@ export default function App() {
     const isLoaded = loadedDatasetYears.includes(year);
     if (isLoaded) {
       // Remove this year's data (filter locally - no re-fetch needed)
-      if (loadedDatasetYears.length <= 1) return; // Don't allow removing last year
       const newLoaded = loadedDatasetYears.filter(y => y !== year);
       setLoadedDatasetYears(newLoaded);
-      // Filter out bars from this year
-      const filtered = rawData.filter(bar => {
-        const d = new Date(bar.time * 1000);
-        return d.getUTCFullYear() !== year;
-      });
-      setRawData(filtered);
-      setAvailableYears(newLoaded);
-      setConfig(prev => ({ ...prev, selectedYears: newLoaded }));
+      if (newLoaded.length === 0) {
+        // All years removed - clear everything
+        setRawData([]);
+        setAvailableYears([]);
+        setConfig(prev => ({ ...prev, selectedYears: [] }));
+        setIsDataLoaded(false);
+      } else {
+        const filtered = rawData.filter(bar => {
+          const d = new Date(bar.time * 1000);
+          return d.getUTCFullYear() !== year;
+        });
+        setRawData(filtered);
+        setAvailableYears(newLoaded);
+        setConfig(prev => ({ ...prev, selectedYears: newLoaded }));
+      }
     } else {
       // Load and add this year's data
       setLoadingYear(year);
@@ -3585,14 +3591,14 @@ export default function App() {
                             <button
                               key={yr}
                               onClick={() => toggleDatasetYear(yr)}
-                              disabled={isLoading || (isLoaded && loadedDatasetYears.length <= 1)}
+                              disabled={isLoading}
                               className={`px-2.5 py-1 text-[10px] rounded border transition-all font-mono ${
                                 isLoading
                                   ? 'border-amber-500/30 bg-amber-500/10 text-amber-400 animate-pulse'
                                   : isLoaded
                                     ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
                                     : 'bg-transparent border-zinc-800 text-zinc-600 hover:border-zinc-600 hover:text-zinc-400'
-                              } ${isLoaded && loadedDatasetYears.length <= 1 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              }`}
                             >
                               {isLoading ? '...' : yr}
                             </button>
