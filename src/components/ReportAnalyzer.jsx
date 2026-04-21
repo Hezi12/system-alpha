@@ -175,6 +175,14 @@ const PortfolioAnalyzer = ({ onBack }) => {
     ));
   };
 
+  // Auto-format date input: digits only → DD/MM/YYYY
+  const formatDateInput = (val) => {
+    const digits = val.replace(/\D/g, '').slice(0, 8);
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+    return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+  };
+
   // Parse DD/MM/YYYY → timestamp (start of that day)
   const parseDMY = (str) => {
     if (!str) return null;
@@ -573,18 +581,20 @@ const PortfolioAnalyzer = ({ onBack }) => {
             <input
               type="text"
               value={dateFrom}
-              onChange={e => setDateFrom(e.target.value)}
+              onChange={e => setDateFrom(formatDateInput(e.target.value))}
               placeholder="DD/MM/YYYY"
               maxLength={10}
+              inputMode="numeric"
               className="bg-transparent text-[11px] text-zinc-300 outline-none w-[82px] placeholder:text-zinc-600"
             />
             <span className="text-zinc-600 text-[11px]">—</span>
             <input
               type="text"
               value={dateTo}
-              onChange={e => setDateTo(e.target.value)}
+              onChange={e => setDateTo(formatDateInput(e.target.value))}
               placeholder="DD/MM/YYYY"
               maxLength={10}
+              inputMode="numeric"
               className="bg-transparent text-[11px] text-zinc-300 outline-none w-[82px] placeholder:text-zinc-600"
             />
           </div>
