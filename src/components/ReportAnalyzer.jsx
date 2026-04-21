@@ -656,9 +656,12 @@ const PortfolioAnalyzer = ({ onBack }) => {
         </div>
       </div>
 
-      {/* ── Optimizer Panel ── */}
-      {showOptimizer && (
-        <div className="border-b border-zinc-800 bg-zinc-950/80 px-8 py-6 space-y-6">
+      {/* ── Optimizer Panel placeholder (moved inside scroll) ── */}
+
+      <div className="flex-1 overflow-y-auto p-8 space-y-8">
+        {/* ── Optimizer Panel ── */}
+        {showOptimizer && (
+        <div className="bg-zinc-950/80 border border-zinc-800 rounded-2xl px-6 py-6 space-y-6 max-w-7xl mx-auto shadow-xl">
           {/* Header row */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -805,9 +808,8 @@ const PortfolioAnalyzer = ({ onBack }) => {
             </div>
           )}
         </div>
-      )}
+        )}
 
-      <div className="flex-1 overflow-y-auto p-8 space-y-8">
         {strategies.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center">
             <div className="w-24 h-24 rounded-full bg-zinc-900/50 border border-zinc-800 flex items-center justify-center opacity-30">
