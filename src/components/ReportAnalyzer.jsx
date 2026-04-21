@@ -364,12 +364,32 @@ const PortfolioAnalyzer = ({ onBack }) => {
   const [optRunning, setOptRunning]       = useState(false);
   const [optProgress, setOptProgress]     = useState(0);
 
-  // Init params for new strategies (default 0/7/1)
+  // When optimizer opens → sync min/max to currentMultiplier ± 1 for every strategy
+  useEffect(() => {
+    if (!showOptimizer) return;
+    setOptParams(() => {
+      const next = {};
+      strategies.forEach(s => {
+        const cur = s.multiplier ?? 1;
+        next[s.id] = {
+          min:  Math.max(0, cur - 1),
+          max:  cur + 1,
+          step: 1,
+        };
+      });
+      return next;
+    });
+  }, [showOptimizer]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Init params for brand-new strategies added while optimizer is already open
   useEffect(() => {
     setOptParams(prev => {
       const next = { ...prev };
       strategies.forEach(s => {
-        if (!next[s.id]) next[s.id] = { min: 0, max: 7, step: 1 };
+        if (!next[s.id]) {
+          const cur = s.multiplier ?? 1;
+          next[s.id] = { min: Math.max(0, cur - 1), max: cur + 1, step: 1 };
+        }
       });
       return next;
     });
