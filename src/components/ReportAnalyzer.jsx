@@ -437,7 +437,7 @@ const PortfolioAnalyzer = ({ onBack }) => {
       }
     };
 
-    const TOP_N = 10;
+    const TOP_N = 30;
     const top10 = [];
     const pushResult = (mults, stats) => {
       const sc = score(stats);
