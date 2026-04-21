@@ -1,5 +1,7 @@
-import React, { useState, useMemo, useRef, useCallback } from 'react';
-import { Upload, FileText, ChevronLeft, BarChart2, TrendingUp, ArrowUp, ArrowDown, Activity, Download, Search, Filter, X, Table, Plus, PieChart, Layers, Trash2, Layout, Check, ChevronDown, Calendar } from 'lucide-react';
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { Upload, FileText, ChevronLeft, BarChart2, TrendingUp, ArrowUp, ArrowDown, Activity, Download, Search, Filter, X, Table, Plus, PieChart, Layers, Trash2, Layout, Check, ChevronDown, Calendar, Save, FolderOpen } from 'lucide-react';
+
+const SESSIONS_KEY = 'portfolio_sessions';
 
 const COLORS = {
   bg: '#000000',
@@ -20,6 +22,57 @@ const PortfolioAnalyzer = ({ onBack }) => {
   const [activeTab, setActiveTab] = useState('PORTFOLIO'); // 'PORTFOLIO' or 'INDIVIDUAL'
   const [activeChart, setActiveChart] = useState('EQUITY'); // 'EQUITY' or 'DRAWDOWN'
   const [isCalendarOpen, setIsCalendarOpen] = useState(true);
+  const [dateFrom, setDateFrom] = useState('2021-01-01');
+  const [dateTo, setDateTo] = useState('2026-01-03');
+  const [sessions, setSessions] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(SESSIONS_KEY)) || []; }
+    catch { return []; }
+  });
+  const [showSessionMenu, setShowSessionMenu] = useState(false);
+  const [saveNameInput, setSaveNameInput] = useState('');
+  const [showSaveInput, setShowSaveInput] = useState(false);
+  const sessionMenuRef = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (sessionMenuRef.current && !sessionMenuRef.current.contains(e.target)) {
+        setShowSessionMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const saveSession = () => {
+    const name = saveNameInput.trim();
+    if (!name) return;
+    const session = {
+      name,
+      savedAt: new Date().toISOString(),
+      strategies,
+      dateFrom,
+      dateTo,
+    };
+    const updated = [...sessions.filter(s => s.name !== name), session];
+    setSessions(updated);
+    localStorage.setItem(SESSIONS_KEY, JSON.stringify(updated));
+    setSaveNameInput('');
+    setShowSaveInput(false);
+  };
+
+  const loadSession = (session) => {
+    setStrategies(session.strategies);
+    setDateFrom(session.dateFrom);
+    setDateTo(session.dateTo);
+    setShowSessionMenu(false);
+  };
+
+  const deleteSession = (name, e) => {
+    e.stopPropagation();
+    const updated = sessions.filter(s => s.name !== name);
+    setSessions(updated);
+    localStorage.setItem(SESSIONS_KEY, JSON.stringify(updated));
+  };
 
   const parseCurrency = (val) => {
     if (typeof val === 'number') return val;
@@ -122,8 +175,17 @@ const PortfolioAnalyzer = ({ onBack }) => {
     ));
   };
 
+  const filteredStrategies = useMemo(() => {
+    const from = dateFrom ? new Date(dateFrom).getTime() : 0;
+    const to = dateTo ? new Date(dateTo + 'T23:59:59').getTime() : Infinity;
+    return strategies.map(s => ({
+      ...s,
+      trades: s.trades.filter(t => t.exitTime >= from && t.exitTime <= to)
+    }));
+  }, [strategies, dateFrom, dateTo]);
+
   const individualStats = useMemo(() => {
-    return strategies.map(s => {
+    return filteredStrategies.map(s => {
       let cumProfit = 0;
       let grossProfit = 0;
       let grossLoss = 0;
@@ -132,10 +194,10 @@ const PortfolioAnalyzer = ({ onBack }) => {
       let wins = 0;
       let lastPeakTime = s.trades[0]?.exitTime || 0;
       let maxRecoveryTime = 0;
-      
+
       const curve = [];
       const drawdownCurve = [];
-      
+
       s.trades.forEach(t => {
         const p = t.profit * s.multiplier;
         cumProfit += p;
@@ -180,10 +242,10 @@ const PortfolioAnalyzer = ({ onBack }) => {
         drawdownCurve
       };
     });
-  }, [strategies]);
+  }, [filteredStrategies]);
 
   const portfolioStats = useMemo(() => {
-    if (strategies.length === 0) return null;
+    if (filteredStrategies.length === 0) return null;
 
     const activeStrats = individualStats.filter(s => s.active);
     if (activeStrats.length === 0) return { netProfit: 0, totalTrades: 0, winRate: 0, profitFactor: 0, maxDD: 0, equityCurve: [], drawdownCurve: [], monthlyAvg: 0, maxRecoveryTime: 0, strategyCount: 0 };
@@ -259,7 +321,7 @@ const PortfolioAnalyzer = ({ onBack }) => {
   }, [individualStats]);
 
   const monthlyPerformance = useMemo(() => {
-    if (strategies.length === 0) return {};
+    if (filteredStrategies.length === 0) return {};
     const activeStrats = individualStats.filter(s => s.active);
     const allTrades = activeStrats.flatMap(s => 
       s.trades.map(t => ({ ...t, adjustedProfit: t.profit * s.multiplier }))
@@ -305,8 +367,26 @@ const PortfolioAnalyzer = ({ onBack }) => {
         </div>
 
         <div className="flex items-center gap-4">
+          {/* Date Range Filter */}
+          <div className="flex items-center gap-2 bg-zinc-900/50 border border-zinc-800 rounded-lg px-3 py-1.5">
+            <Calendar size={13} className="text-zinc-500 shrink-0" />
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={e => setDateFrom(e.target.value)}
+              className="bg-transparent text-[11px] text-zinc-300 outline-none w-[100px] cursor-pointer"
+            />
+            <span className="text-zinc-600 text-[11px]">—</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={e => setDateTo(e.target.value)}
+              className="bg-transparent text-[11px] text-zinc-300 outline-none w-[100px] cursor-pointer"
+            />
+          </div>
+
           <div className="flex bg-zinc-900/50 p-1 rounded-lg border border-zinc-800">
-            <button 
+            <button
               onClick={() => setActiveTab('PORTFOLIO')}
               className={`px-4 py-1 text-[10px] font-bold rounded-md transition-all ${activeTab === 'PORTFOLIO' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
             >
@@ -320,13 +400,87 @@ const PortfolioAnalyzer = ({ onBack }) => {
             </button>
           </div>
 
+          {/* Save / Load Sessions */}
+          <div className="flex items-center gap-2" ref={sessionMenuRef}>
+            {/* Save */}
+            {showSaveInput ? (
+              <div className="flex items-center gap-1.5">
+                <input
+                  autoFocus
+                  type="text"
+                  value={saveNameInput}
+                  onChange={e => setSaveNameInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveSession(); if (e.key === 'Escape') setShowSaveInput(false); }}
+                  placeholder="Session name..."
+                  className="bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-200 rounded-lg px-3 py-1.5 outline-none w-36 placeholder:text-zinc-600"
+                />
+                <button onClick={saveSession} className="p-1.5 bg-green-600/20 hover:bg-green-600/40 text-green-400 rounded-lg transition-all">
+                  <Check size={13} />
+                </button>
+                <button onClick={() => setShowSaveInput(false)} className="p-1.5 hover:bg-zinc-800 text-zinc-500 rounded-lg transition-all">
+                  <X size={13} />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setShowSaveInput(true); setSaveNameInput(''); }}
+                disabled={strategies.length === 0}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 text-[11px] font-bold rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <Save size={13} />
+                Save
+              </button>
+            )}
+
+            {/* Load */}
+            <div className="relative">
+              <button
+                onClick={() => setShowSessionMenu(v => !v)}
+                disabled={sessions.length === 0}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 text-[11px] font-bold rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <FolderOpen size={13} />
+                Load
+                {sessions.length > 0 && <span className="bg-blue-600 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">{sessions.length}</span>}
+              </button>
+
+              {showSessionMenu && (
+                <div className="absolute right-0 top-full mt-2 w-64 bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl z-50 overflow-hidden">
+                  <div className="px-3 py-2 border-b border-zinc-800">
+                    <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Saved Sessions</p>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {sessions.map(s => (
+                      <div
+                        key={s.name}
+                        onClick={() => loadSession(s)}
+                        className="flex items-center justify-between px-3 py-2.5 hover:bg-zinc-900 cursor-pointer group/item transition-colors"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-[12px] font-semibold text-zinc-200 truncate">{s.name}</p>
+                          <p className="text-[10px] text-zinc-600">{s.strategies.length} strategies · {new Date(s.savedAt).toLocaleDateString()}</p>
+                        </div>
+                        <button
+                          onClick={(e) => deleteSession(s.name, e)}
+                          className="p-1 opacity-0 group-hover/item:opacity-100 hover:bg-red-900/40 text-red-500 rounded transition-all shrink-0"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="relative group">
-            <input 
-              type="file" 
-              accept=".csv" 
-              multiple 
-              onChange={handleFileUpload} 
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
+            <input
+              type="file"
+              accept=".csv"
+              multiple
+              onChange={handleFileUpload}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
             />
             <button className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold rounded-full transition-all shadow-lg shadow-blue-900/20">
               <Plus size={14} />
