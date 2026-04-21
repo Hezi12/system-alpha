@@ -411,36 +411,48 @@ const PortfolioAnalyzer = ({ onBack }) => {
       return vals;
     });
 
-    // Evaluate one combination → { netProfit, maxDD }
+    // Evaluate one combination → full stats
     const calcStats = (mults) => {
-      let cum = 0, peak = 0, maxDD = 0;
+      let cum = 0, peak = 0, maxDD = 0, grossProfit = 0, grossLoss = 0, wins = 0;
       for (let i = 0; i < mergedSorted.length; i++) {
-        cum += mergedSorted[i].profit * mults[mergedSorted[i].si];
+        const p = mergedSorted[i].profit * mults[mergedSorted[i].si];
+        cum += p;
+        if (p > 0) { wins++; grossProfit += p; } else { grossLoss += Math.abs(p); }
         if (cum > peak) peak = cum;
         const dd = peak - cum;
         if (dd > maxDD) maxDD = dd;
       }
-      return { netProfit: cum, maxDD };
+      const pf = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 999 : 0);
+      const wr = mergedSorted.length > 0 ? wins / mergedSorted.length * 100 : 0;
+      return { netProfit: cum, maxDD, profitFactor: pf, winRate: wr };
     };
 
-    const score = (stats) =>
-      optMetric === 'ratio'
-        ? (stats.maxDD > 0 ? stats.netProfit / stats.maxDD : (stats.netProfit > 0 ? 9999 : -9999))
-        : stats.netProfit;
+    const score = (stats) => {
+      switch (optMetric) {
+        case 'ratio':     return stats.maxDD > 0 ? stats.netProfit / stats.maxDD : (stats.netProfit > 0 ? 9999 : -9999);
+        case 'minDD':     return stats.netProfit > 0 ? -stats.maxDD : -9e15;  // minimize DD, only if profitable
+        case 'pf':        return stats.profitFactor;
+        case 'winRate':   return stats.winRate;
+        default:          return stats.netProfit;
+      }
+    };
 
-    const top5 = [];
+    const TOP_N = 10;
+    const top10 = [];
     const pushResult = (mults, stats) => {
       const sc = score(stats);
-      if (top5.length < 5 || sc > top5[top5.length - 1].score) {
-        top5.push({
+      if (top10.length < TOP_N || sc > top10[top10.length - 1].score) {
+        top10.push({
           score: sc,
           netProfit: stats.netProfit,
           maxDD: stats.maxDD,
+          profitFactor: stats.profitFactor,
+          winRate: stats.winRate,
           multipliers: activeStrats.reduce((obj, s, i) => { obj[s.id] = mults[i]; return obj; }, {}),
           stratNames: activeStrats.map((s, i) => ({ name: s.name, mult: mults[i] })),
         });
-        top5.sort((a, b) => b.score - a.score);
-        if (top5.length > 5) top5.pop();
+        top10.sort((a, b) => b.score - a.score);
+        if (top10.length > TOP_N) top10.pop();
       }
     };
 
@@ -483,7 +495,7 @@ const PortfolioAnalyzer = ({ onBack }) => {
       }
     }
 
-    setOptResults(top5);
+    setOptResults(top10);
     setOptProgress(100);
     setOptRunning(false);
   };
@@ -671,7 +683,13 @@ const PortfolioAnalyzer = ({ onBack }) => {
             <div className="flex items-center gap-3">
               {/* Metric selector */}
               <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
-                {[['netProfit','Net Profit'],['ratio','Profit / MaxDD']].map(([val, label]) => (
+                {[
+                  ['netProfit', 'Net Profit'],
+                  ['ratio',     'Profit / DD'],
+                  ['minDD',     'Min Drawdown'],
+                  ['pf',        'Profit Factor'],
+                  ['winRate',   'Win Rate'],
+                ].map(([val, label]) => (
                   <button
                     key={val}
                     onClick={() => setOptMetric(val)}
@@ -759,46 +777,64 @@ const PortfolioAnalyzer = ({ onBack }) => {
             <div className="space-y-3">
               <div className="flex items-center gap-2 pt-2 border-t border-zinc-800">
                 <Trophy size={13} className="text-amber-400" />
-                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Top {optResults.length} Results</span>
+                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                  Top {optResults.length} — sorted by {
+                    { netProfit:'Net Profit', ratio:'Profit/DD', minDD:'Min Drawdown', pf:'Profit Factor', winRate:'Win Rate' }[optMetric]
+                  }
+                </span>
               </div>
-              <div className="grid gap-3">
+              <div className="grid gap-2">
                 {optResults.map((res, rank) => (
-                  <div key={rank} className={`flex items-center gap-4 px-4 py-3 rounded-xl border ${rank === 0 ? 'border-amber-500/30 bg-amber-500/5' : 'border-zinc-800 bg-zinc-900/30'}`}>
-                    {/* Rank */}
-                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black shrink-0 ${rank === 0 ? 'bg-amber-500 text-black' : 'bg-zinc-800 text-zinc-400'}`}>
+                  <div key={rank} className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${rank === 0 ? 'border-amber-500/30 bg-amber-500/5' : 'border-zinc-800/60 bg-zinc-900/20'}`}>
+                    {/* Rank badge */}
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${rank === 0 ? 'bg-amber-500 text-black' : rank < 3 ? 'bg-zinc-700 text-zinc-300' : 'bg-zinc-900 text-zinc-500'}`}>
                       {rank + 1}
                     </div>
+
                     {/* Multipliers per strategy */}
-                    <div className="flex flex-wrap gap-2 flex-1">
+                    <div className="flex flex-wrap gap-1.5 flex-1 min-w-0">
                       {res.stratNames.map((sn, i) => (
-                        <div key={i} className="flex items-center gap-1.5 bg-zinc-800/60 px-2 py-1 rounded-lg">
+                        <div key={i} className="flex items-center gap-1 bg-zinc-800/70 px-2 py-0.5 rounded-md">
                           <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: COLORS.chart[i % COLORS.chart.length] }} />
-                          <span className="text-[10px] text-zinc-400 truncate max-w-[100px]">{sn.name}</span>
-                          <span className="text-[11px] font-bold text-zinc-200">×{sn.mult}</span>
+                          <span className="text-[9px] text-zinc-500 truncate max-w-[80px]">{sn.name}</span>
+                          <span className="text-[10px] font-bold text-zinc-200">×{sn.mult}</span>
                         </div>
                       ))}
                     </div>
-                    {/* Stats */}
-                    <div className="flex items-center gap-6 shrink-0 text-right">
-                      <div>
-                        <p className="text-[9px] text-zinc-600 uppercase">Net Profit</p>
-                        <p className={`text-[13px] font-bold ${res.netProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmt(res.netProfit)}</p>
+
+                    {/* Stats grid — always show all 4 */}
+                    <div className="flex items-center gap-5 shrink-0">
+                      <div className="text-right">
+                        <p className="text-[8px] text-zinc-600 uppercase tracking-wider">Net Profit</p>
+                        <p className={`text-[12px] font-bold tabular-nums ${res.netProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmt(res.netProfit)}</p>
                       </div>
-                      <div>
-                        <p className="text-[9px] text-zinc-600 uppercase">Max DD</p>
-                        <p className="text-[13px] font-bold text-red-400">{fmt(-res.maxDD)}</p>
+                      <div className="text-right">
+                        <p className="text-[8px] text-zinc-600 uppercase tracking-wider">Max DD</p>
+                        <p className="text-[12px] font-bold tabular-nums text-red-400">{fmt(-res.maxDD)}</p>
                       </div>
-                      {optMetric === 'ratio' && (
-                        <div>
-                          <p className="text-[9px] text-zinc-600 uppercase">Ratio</p>
-                          <p className="text-[13px] font-bold text-amber-400">{res.maxDD > 0 ? (res.netProfit / res.maxDD).toFixed(2) : '∞'}</p>
-                        </div>
-                      )}
+                      <div className="text-right">
+                        <p className="text-[8px] text-zinc-600 uppercase tracking-wider">P / DD</p>
+                        <p className="text-[12px] font-bold tabular-nums text-amber-400">
+                          {res.maxDD > 0 ? (res.netProfit / res.maxDD).toFixed(2) : '∞'}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[8px] text-zinc-600 uppercase tracking-wider">PF</p>
+                        <p className="text-[12px] font-bold tabular-nums text-blue-400">
+                          {res.profitFactor >= 999 ? '∞' : res.profitFactor.toFixed(2)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[8px] text-zinc-600 uppercase tracking-wider">Win%</p>
+                        <p className="text-[12px] font-bold tabular-nums text-zinc-300">
+                          {res.winRate.toFixed(1)}%
+                        </p>
+                      </div>
                       <button
                         onClick={() => applyOptResult(res)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold rounded-lg transition-all"
+                        className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold rounded-lg transition-all shrink-0"
                       >
-                        <Check size={11} />
+                        <Check size={10} />
                         Apply
                       </button>
                     </div>
