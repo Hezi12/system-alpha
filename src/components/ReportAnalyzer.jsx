@@ -500,6 +500,21 @@ const PortfolioAnalyzer = ({ onBack }) => {
     setOptRunning(false);
   };
 
+  // Re-sort existing results live when metric changes
+  const sortedOptResults = useMemo(() => {
+    if (optResults.length === 0) return [];
+    const getScore = (res) => {
+      switch (optMetric) {
+        case 'ratio':   return res.maxDD > 0 ? res.netProfit / res.maxDD : (res.netProfit > 0 ? 9999 : -9999);
+        case 'minDD':   return res.netProfit > 0 ? -res.maxDD : -9e15;
+        case 'pf':      return res.profitFactor;
+        case 'winRate': return res.winRate;
+        default:        return res.netProfit;
+      }
+    };
+    return [...optResults].sort((a, b) => getScore(b) - getScore(a));
+  }, [optResults, optMetric]);
+
   const applyOptResult = (result) => {
     setStrategies(prev => prev.map(s =>
       result.multipliers[s.id] !== undefined
@@ -773,18 +788,18 @@ const PortfolioAnalyzer = ({ onBack }) => {
           </div>
 
           {/* Results */}
-          {optResults.length > 0 && (
+          {sortedOptResults.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center gap-2 pt-2 border-t border-zinc-800">
                 <Trophy size={13} className="text-amber-400" />
                 <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                  Top {optResults.length} — sorted by {
-                    { netProfit:'Net Profit', ratio:'Profit/DD', minDD:'Min Drawdown', pf:'Profit Factor', winRate:'Win Rate' }[optMetric]
+                  Top {sortedOptResults.length} — #1 = best {
+                    { netProfit:'Net Profit', ratio:'Profit/DD Ratio', minDD:'Min Drawdown', pf:'Profit Factor', winRate:'Win Rate' }[optMetric]
                   }
                 </span>
               </div>
               <div className="grid gap-2">
-                {optResults.map((res, rank) => (
+                {sortedOptResults.map((res, rank) => (
                   <div key={rank} className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${rank === 0 ? 'border-amber-500/30 bg-amber-500/5' : 'border-zinc-800/60 bg-zinc-900/20'}`}>
                     {/* Rank badge */}
                     <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${rank === 0 ? 'bg-amber-500 text-black' : rank < 3 ? 'bg-zinc-700 text-zinc-300' : 'bg-zinc-900 text-zinc-500'}`}>
