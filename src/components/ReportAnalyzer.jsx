@@ -387,28 +387,21 @@ const PortfolioAnalyzer = ({ onBack }) => {
   }, [filteredStrategies, optParams]);
 
   const runOptimization = async () => {
+    const SAMPLE_LIMIT = 200000;
+    const SAMPLE_SIZE  = 100000;
     const activeStrats = filteredStrategies.filter(s => s.active);
     if (activeStrats.length === 0) return;
-
-    if (optTotalCombos > 200000) {
-      alert(`יש ${optTotalCombos.toLocaleString()} צירופים — מקסימום 200,000. הגדל step או צמצם טווח.`);
-      return;
-    }
 
     setOptRunning(true);
     setOptResults([]);
     setOptProgress(0);
 
-    // Pre-merge all trades once, tagged with strategy index
-    const mergedTrades = activeStrats
-      .flatMap((s, si) => s.trades.map(t => ({ profit: t.profit, si })));
-    // (no need to sort by time for net-profit; for maxDD we need order but trades are already sorted per strategy)
-    // Rebuild merged sorted by exitTime for accurate maxDD
+    // Pre-merge trades sorted by exitTime (needed for accurate maxDD)
     const mergedSorted = activeStrats
       .flatMap((s, si) => s.trades.map(t => ({ exitTime: t.exitTime, profit: t.profit, si })))
       .sort((a, b) => a.exitTime - b.exitTime);
 
-    // Build value ranges per strategy
+    // Value ranges per strategy
     const ranges = activeStrats.map(s => {
       const p = optParams[s.id] || { min: 0, max: 7, step: 1 };
       const vals = [];
@@ -418,7 +411,7 @@ const PortfolioAnalyzer = ({ onBack }) => {
       return vals;
     });
 
-    // Fast score for a multiplier array
+    // Evaluate one combination → { netProfit, maxDD }
     const calcStats = (mults) => {
       let cum = 0, peak = 0, maxDD = 0;
       for (let i = 0; i < mergedSorted.length; i++) {
@@ -435,18 +428,9 @@ const PortfolioAnalyzer = ({ onBack }) => {
         ? (stats.maxDD > 0 ? stats.netProfit / stats.maxDD : (stats.netProfit > 0 ? 9999 : -9999))
         : stats.netProfit;
 
-    // Iterative cartesian product
-    const indices = new Array(ranges.length).fill(0);
     const top5 = [];
-    const BATCH = 2000;
-    let count = 0;
-    const total = optTotalCombos;
-
-    while (true) {
-      const mults = indices.map((idx, i) => ranges[i][idx]);
-      const stats = calcStats(mults);
+    const pushResult = (mults, stats) => {
       const sc = score(stats);
-
       if (top5.length < 5 || sc > top5[top5.length - 1].score) {
         top5.push({
           score: sc,
@@ -458,20 +442,44 @@ const PortfolioAnalyzer = ({ onBack }) => {
         top5.sort((a, b) => b.score - a.score);
         if (top5.length > 5) top5.pop();
       }
+    };
 
-      // Advance indices (right-to-left carry)
-      let carry = 1;
-      for (let i = ranges.length - 1; i >= 0 && carry; i--) {
-        indices[i]++;
-        if (indices[i] >= ranges[i].length) { indices[i] = 0; }
-        else { carry = 0; }
+    const BATCH = 2000;
+
+    if (optTotalCombos <= SAMPLE_LIMIT) {
+      // ── Brute force (exact) ────────────────────────────────
+      const indices = new Array(ranges.length).fill(0);
+      let count = 0;
+
+      while (true) {
+        const mults = indices.map((idx, i) => ranges[i][idx]);
+        pushResult(mults, calcStats(mults));
+
+        // advance indices right-to-left
+        let carry = 1;
+        for (let i = ranges.length - 1; i >= 0 && carry; i--) {
+          indices[i]++;
+          if (indices[i] >= ranges[i].length) indices[i] = 0;
+          else carry = 0;
+        }
+        if (carry) break;
+
+        count++;
+        if (count % BATCH === 0) {
+          setOptProgress(Math.round((count / optTotalCombos) * 100));
+          await new Promise(r => setTimeout(r, 0));
+        }
       }
-      if (carry) break; // done
+    } else {
+      // ── Random sampling ────────────────────────────────────
+      for (let s = 0; s < SAMPLE_SIZE; s++) {
+        const mults = ranges.map(r => r[Math.floor(Math.random() * r.length)]);
+        pushResult(mults, calcStats(mults));
 
-      count++;
-      if (count % BATCH === 0) {
-        setOptProgress(Math.round((count / total) * 100));
-        await new Promise(r => setTimeout(r, 0));
+        if (s % BATCH === 0) {
+          setOptProgress(Math.round((s / SAMPLE_SIZE) * 100));
+          await new Promise(r => setTimeout(r, 0));
+        }
       }
     }
 
@@ -671,13 +679,15 @@ const PortfolioAnalyzer = ({ onBack }) => {
                 ))}
               </div>
               {/* Combo count */}
-              <span className={`text-[10px] font-mono px-2 py-1 rounded border ${optTotalCombos > 200000 ? 'border-red-800 text-red-400 bg-red-900/20' : 'border-zinc-800 text-zinc-500'}`}>
-                {optTotalCombos.toLocaleString()} combos
+              <span className={`text-[10px] font-mono px-2 py-1 rounded border ${optTotalCombos > 200000 ? 'border-amber-700 text-amber-400 bg-amber-900/10' : 'border-zinc-800 text-zinc-500'}`}>
+                {optTotalCombos > 200000
+                  ? '~100,000 samples'
+                  : `${optTotalCombos.toLocaleString()} combos`}
               </span>
               {/* Run button */}
               <button
                 onClick={runOptimization}
-                disabled={optRunning || optTotalCombos === 0 || optTotalCombos > 200000}
+                disabled={optRunning || optTotalCombos === 0}
                 className="flex items-center gap-1.5 px-4 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-black text-[11px] font-bold rounded-lg transition-all"
               >
                 <Zap size={12} />
