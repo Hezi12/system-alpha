@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { Upload, FileText, ChevronLeft, BarChart2, TrendingUp, ArrowUp, ArrowDown, Activity, Download, Search, Filter, X, Table, Plus, PieChart, Layers, Trash2, Layout, Check, ChevronDown, Calendar, Save, FolderOpen } from 'lucide-react';
+import { Upload, FileText, ChevronLeft, BarChart2, TrendingUp, ArrowUp, ArrowDown, Activity, Download, Search, Filter, X, Table, Plus, PieChart, Layers, Trash2, Layout, Check, ChevronDown, Calendar, Save, FolderOpen, Zap, Trophy } from 'lucide-react';
 
 const SESSIONS_KEY = 'portfolio_sessions';
 
@@ -356,6 +356,142 @@ const PortfolioAnalyzer = ({ onBack }) => {
     setStrategies(prev => prev.filter(s => s.id !== id));
   };
 
+  // ─── Optimizer ───────────────────────────────────────────────────────────────
+  const [showOptimizer, setShowOptimizer] = useState(false);
+  const [optParams, setOptParams]         = useState({});   // { [id]: { min, max, step } }
+  const [optMetric, setOptMetric]         = useState('netProfit'); // 'netProfit' | 'ratio'
+  const [optResults, setOptResults]       = useState([]);
+  const [optRunning, setOptRunning]       = useState(false);
+  const [optProgress, setOptProgress]     = useState(0);
+
+  // Init params for new strategies (default 0/7/1)
+  useEffect(() => {
+    setOptParams(prev => {
+      const next = { ...prev };
+      strategies.forEach(s => {
+        if (!next[s.id]) next[s.id] = { min: 0, max: 7, step: 1 };
+      });
+      return next;
+    });
+  }, [strategies]);
+
+  // Count total combinations (for live display)
+  const optTotalCombos = useMemo(() => {
+    const active = filteredStrategies.filter(s => s.active);
+    if (active.length === 0) return 0;
+    return active.reduce((acc, s) => {
+      const p = optParams[s.id] || { min: 0, max: 7, step: 1 };
+      const count = Math.floor((p.max - p.min) / Math.max(p.step, 0.001)) + 1;
+      return acc * Math.max(count, 1);
+    }, 1);
+  }, [filteredStrategies, optParams]);
+
+  const runOptimization = async () => {
+    const activeStrats = filteredStrategies.filter(s => s.active);
+    if (activeStrats.length === 0) return;
+
+    if (optTotalCombos > 200000) {
+      alert(`יש ${optTotalCombos.toLocaleString()} צירופים — מקסימום 200,000. הגדל step או צמצם טווח.`);
+      return;
+    }
+
+    setOptRunning(true);
+    setOptResults([]);
+    setOptProgress(0);
+
+    // Pre-merge all trades once, tagged with strategy index
+    const mergedTrades = activeStrats
+      .flatMap((s, si) => s.trades.map(t => ({ profit: t.profit, si })));
+    // (no need to sort by time for net-profit; for maxDD we need order but trades are already sorted per strategy)
+    // Rebuild merged sorted by exitTime for accurate maxDD
+    const mergedSorted = activeStrats
+      .flatMap((s, si) => s.trades.map(t => ({ exitTime: t.exitTime, profit: t.profit, si })))
+      .sort((a, b) => a.exitTime - b.exitTime);
+
+    // Build value ranges per strategy
+    const ranges = activeStrats.map(s => {
+      const p = optParams[s.id] || { min: 0, max: 7, step: 1 };
+      const vals = [];
+      for (let v = p.min; v <= p.max + 1e-9; v += Math.max(p.step, 0.001)) {
+        vals.push(Math.round(v * 1000) / 1000);
+      }
+      return vals;
+    });
+
+    // Fast score for a multiplier array
+    const calcStats = (mults) => {
+      let cum = 0, peak = 0, maxDD = 0;
+      for (let i = 0; i < mergedSorted.length; i++) {
+        cum += mergedSorted[i].profit * mults[mergedSorted[i].si];
+        if (cum > peak) peak = cum;
+        const dd = peak - cum;
+        if (dd > maxDD) maxDD = dd;
+      }
+      return { netProfit: cum, maxDD };
+    };
+
+    const score = (stats) =>
+      optMetric === 'ratio'
+        ? (stats.maxDD > 0 ? stats.netProfit / stats.maxDD : (stats.netProfit > 0 ? 9999 : -9999))
+        : stats.netProfit;
+
+    // Iterative cartesian product
+    const indices = new Array(ranges.length).fill(0);
+    const top5 = [];
+    const BATCH = 2000;
+    let count = 0;
+    const total = optTotalCombos;
+
+    while (true) {
+      const mults = indices.map((idx, i) => ranges[i][idx]);
+      const stats = calcStats(mults);
+      const sc = score(stats);
+
+      if (top5.length < 5 || sc > top5[top5.length - 1].score) {
+        top5.push({
+          score: sc,
+          netProfit: stats.netProfit,
+          maxDD: stats.maxDD,
+          multipliers: activeStrats.reduce((obj, s, i) => { obj[s.id] = mults[i]; return obj; }, {}),
+          stratNames: activeStrats.map((s, i) => ({ name: s.name, mult: mults[i] })),
+        });
+        top5.sort((a, b) => b.score - a.score);
+        if (top5.length > 5) top5.pop();
+      }
+
+      // Advance indices (right-to-left carry)
+      let carry = 1;
+      for (let i = ranges.length - 1; i >= 0 && carry; i--) {
+        indices[i]++;
+        if (indices[i] >= ranges[i].length) { indices[i] = 0; }
+        else { carry = 0; }
+      }
+      if (carry) break; // done
+
+      count++;
+      if (count % BATCH === 0) {
+        setOptProgress(Math.round((count / total) * 100));
+        await new Promise(r => setTimeout(r, 0));
+      }
+    }
+
+    setOptResults(top5);
+    setOptProgress(100);
+    setOptRunning(false);
+  };
+
+  const applyOptResult = (result) => {
+    setStrategies(prev => prev.map(s =>
+      result.multipliers[s.id] !== undefined
+        ? { ...s, multiplier: result.multipliers[s.id] }
+        : s
+    ));
+  };
+
+  const fmt = (n) => n >= 0
+    ? `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+    : `-$${Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+
   return (
     <div className="flex-1 flex flex-col bg-black overflow-hidden animate-in fade-in duration-500">
       {/* Header */}
@@ -487,6 +623,15 @@ const PortfolioAnalyzer = ({ onBack }) => {
             </div>
           </div>
 
+          <button
+            onClick={() => { setShowOptimizer(v => !v); setOptResults([]); }}
+            disabled={filteredStrategies.filter(s => s.active).length === 0}
+            className={`flex items-center gap-1.5 px-3 py-1.5 border text-[11px] font-bold rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed ${showOptimizer ? 'bg-amber-500/10 border-amber-500/40 text-amber-400' : 'bg-zinc-900/50 hover:bg-zinc-800 border-zinc-800 text-zinc-400 hover:text-zinc-200'}`}
+          >
+            <Zap size={13} />
+            Optimize
+          </button>
+
           <div className="relative group">
             <input
               type="file"
@@ -502,6 +647,155 @@ const PortfolioAnalyzer = ({ onBack }) => {
           </div>
         </div>
       </div>
+
+      {/* ── Optimizer Panel ── */}
+      {showOptimizer && (
+        <div className="border-b border-zinc-800 bg-zinc-950/80 px-8 py-6 space-y-6">
+          {/* Header row */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Zap size={15} className="text-amber-400" />
+              <span className="text-[12px] font-bold text-zinc-200 uppercase tracking-widest">Portfolio Optimizer</span>
+            </div>
+            <div className="flex items-center gap-3">
+              {/* Metric selector */}
+              <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
+                {[['netProfit','Net Profit'],['ratio','Profit / MaxDD']].map(([val, label]) => (
+                  <button
+                    key={val}
+                    onClick={() => setOptMetric(val)}
+                    className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${optMetric === val ? 'bg-amber-500/20 text-amber-400' : 'text-zinc-500 hover:text-zinc-300'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {/* Combo count */}
+              <span className={`text-[10px] font-mono px-2 py-1 rounded border ${optTotalCombos > 200000 ? 'border-red-800 text-red-400 bg-red-900/20' : 'border-zinc-800 text-zinc-500'}`}>
+                {optTotalCombos.toLocaleString()} combos
+              </span>
+              {/* Run button */}
+              <button
+                onClick={runOptimization}
+                disabled={optRunning || optTotalCombos === 0 || optTotalCombos > 200000}
+                className="flex items-center gap-1.5 px-4 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-black text-[11px] font-bold rounded-lg transition-all"
+              >
+                <Zap size={12} />
+                {optRunning ? `${optProgress}%` : 'Run'}
+              </button>
+            </div>
+          </div>
+
+          {/* Progress bar */}
+          {optRunning && (
+            <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
+              <div className="h-full bg-amber-500 transition-all duration-200 rounded-full" style={{ width: `${optProgress}%` }} />
+            </div>
+          )}
+
+          {/* Strategy params table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="border-b border-zinc-800">
+                  <th className="text-left text-zinc-500 font-bold uppercase tracking-widest pb-2 pr-4">Strategy</th>
+                  <th className="text-center text-zinc-500 font-bold uppercase tracking-widest pb-2 px-3 w-24">Min</th>
+                  <th className="text-center text-zinc-500 font-bold uppercase tracking-widest pb-2 px-3 w-24">Max</th>
+                  <th className="text-center text-zinc-500 font-bold uppercase tracking-widest pb-2 px-3 w-24">Step</th>
+                  <th className="text-center text-zinc-500 font-bold uppercase tracking-widest pb-2 px-3 w-24">Values</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredStrategies.filter(s => s.active).map((s, i) => {
+                  const p = optParams[s.id] || { min: 0, max: 7, step: 1 };
+                  const count = Math.floor((p.max - p.min) / Math.max(p.step, 0.001)) + 1;
+                  const update = (field, val) => setOptParams(prev => ({
+                    ...prev,
+                    [s.id]: { ...(prev[s.id] || { min: 0, max: 7, step: 1 }), [field]: parseFloat(val) || 0 }
+                  }));
+                  return (
+                    <tr key={s.id} className="border-b border-zinc-900/50">
+                      <td className="py-2 pr-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full" style={{ background: COLORS.chart[i % COLORS.chart.length] }} />
+                          <span className="text-zinc-300 truncate max-w-[200px]">{s.name}</span>
+                        </div>
+                      </td>
+                      {['min','max','step'].map(field => (
+                        <td key={field} className="py-2 px-3">
+                          <input
+                            type="number"
+                            value={p[field]}
+                            min={0}
+                            step={field === 'step' ? 0.5 : 1}
+                            onChange={e => update(field, e.target.value)}
+                            className="w-full bg-zinc-900 border border-zinc-800 text-zinc-200 text-[11px] text-center rounded-lg px-2 py-1 outline-none focus:border-amber-500/50"
+                          />
+                        </td>
+                      ))}
+                      <td className="py-2 px-3 text-center text-zinc-500">{Math.max(count, 1)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Results */}
+          {optResults.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 pt-2 border-t border-zinc-800">
+                <Trophy size={13} className="text-amber-400" />
+                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Top {optResults.length} Results</span>
+              </div>
+              <div className="grid gap-3">
+                {optResults.map((res, rank) => (
+                  <div key={rank} className={`flex items-center gap-4 px-4 py-3 rounded-xl border ${rank === 0 ? 'border-amber-500/30 bg-amber-500/5' : 'border-zinc-800 bg-zinc-900/30'}`}>
+                    {/* Rank */}
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black shrink-0 ${rank === 0 ? 'bg-amber-500 text-black' : 'bg-zinc-800 text-zinc-400'}`}>
+                      {rank + 1}
+                    </div>
+                    {/* Multipliers per strategy */}
+                    <div className="flex flex-wrap gap-2 flex-1">
+                      {res.stratNames.map((sn, i) => (
+                        <div key={i} className="flex items-center gap-1.5 bg-zinc-800/60 px-2 py-1 rounded-lg">
+                          <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: COLORS.chart[i % COLORS.chart.length] }} />
+                          <span className="text-[10px] text-zinc-400 truncate max-w-[100px]">{sn.name}</span>
+                          <span className="text-[11px] font-bold text-zinc-200">×{sn.mult}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Stats */}
+                    <div className="flex items-center gap-6 shrink-0 text-right">
+                      <div>
+                        <p className="text-[9px] text-zinc-600 uppercase">Net Profit</p>
+                        <p className={`text-[13px] font-bold ${res.netProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmt(res.netProfit)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-zinc-600 uppercase">Max DD</p>
+                        <p className="text-[13px] font-bold text-red-400">{fmt(-res.maxDD)}</p>
+                      </div>
+                      {optMetric === 'ratio' && (
+                        <div>
+                          <p className="text-[9px] text-zinc-600 uppercase">Ratio</p>
+                          <p className="text-[13px] font-bold text-amber-400">{res.maxDD > 0 ? (res.netProfit / res.maxDD).toFixed(2) : '∞'}</p>
+                        </div>
+                      )}
+                      <button
+                        onClick={() => applyOptResult(res)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold rounded-lg transition-all"
+                      >
+                        <Check size={11} />
+                        Apply
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto p-8 space-y-8">
         {strategies.length === 0 ? (
