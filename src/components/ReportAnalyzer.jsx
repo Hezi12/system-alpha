@@ -22,8 +22,8 @@ const PortfolioAnalyzer = ({ onBack }) => {
   const [activeTab, setActiveTab] = useState('PORTFOLIO'); // 'PORTFOLIO' or 'INDIVIDUAL'
   const [activeChart, setActiveChart] = useState('EQUITY'); // 'EQUITY' or 'DRAWDOWN'
   const [isCalendarOpen, setIsCalendarOpen] = useState(true);
-  const [dateFrom, setDateFrom] = useState('2021-01-01');
-  const [dateTo, setDateTo] = useState('2026-01-03');
+  const [dateFrom, setDateFrom] = useState('01/01/2021');
+  const [dateTo, setDateTo] = useState('03/01/2026');
   const [sessions, setSessions] = useState(() => {
     try { return JSON.parse(localStorage.getItem(SESSIONS_KEY)) || []; }
     catch { return []; }
@@ -175,12 +175,21 @@ const PortfolioAnalyzer = ({ onBack }) => {
     ));
   };
 
+  // Parse DD/MM/YYYY → timestamp (start of that day)
+  const parseDMY = (str) => {
+    if (!str) return null;
+    const [d, m, y] = str.split('/');
+    if (!d || !m || !y) return null;
+    const ts = new Date(`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T00:00:00`).getTime();
+    return isNaN(ts) ? null : ts;
+  };
+
   const filteredStrategies = useMemo(() => {
-    const from = dateFrom ? new Date(dateFrom).getTime() : 0;
-    const to = dateTo ? new Date(dateTo + 'T23:59:59').getTime() : Infinity;
+    const from = parseDMY(dateFrom) ?? 0;
+    const to   = parseDMY(dateTo)   ?? Infinity; // exclusive: trades strictly before start of dateTo
     return strategies.map(s => ({
       ...s,
-      trades: s.trades.filter(t => t.exitTime >= from && t.exitTime <= to)
+      trades: s.trades.filter(t => t.exitTime >= from && t.exitTime < to)
     }));
   }, [strategies, dateFrom, dateTo]);
 
@@ -371,17 +380,21 @@ const PortfolioAnalyzer = ({ onBack }) => {
           <div className="flex items-center gap-2 bg-zinc-900/50 border border-zinc-800 rounded-lg px-3 py-1.5">
             <Calendar size={13} className="text-zinc-500 shrink-0" />
             <input
-              type="date"
+              type="text"
               value={dateFrom}
               onChange={e => setDateFrom(e.target.value)}
-              className="bg-transparent text-[11px] text-zinc-300 outline-none w-[100px] cursor-pointer"
+              placeholder="DD/MM/YYYY"
+              maxLength={10}
+              className="bg-transparent text-[11px] text-zinc-300 outline-none w-[82px] placeholder:text-zinc-600"
             />
             <span className="text-zinc-600 text-[11px]">—</span>
             <input
-              type="date"
+              type="text"
               value={dateTo}
               onChange={e => setDateTo(e.target.value)}
-              className="bg-transparent text-[11px] text-zinc-300 outline-none w-[100px] cursor-pointer"
+              placeholder="DD/MM/YYYY"
+              maxLength={10}
+              className="bg-transparent text-[11px] text-zinc-300 outline-none w-[82px] placeholder:text-zinc-600"
             />
           </div>
 
