@@ -8,9 +8,10 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0e1116;color:#fff;font-family:Arial,sans-serif}
 .app{width:min(94vw,560px);padding:14px}.card{background:#171c24;border:1px solid #303947;border-radius:20px;padding:14px}
-h1{text-align:center;margin:0 0 10px}.target{text-align:center;background:#222a35;border-radius:14px;padding:9px;margin-bottom:10px;font-size:18px}.target b{font-size:30px;color:#ffd166;margin-right:6px}
+h1{text-align:center;margin:0 0 10px}.target{text-align:center;background:#222a35;border-radius:14px;padding:9px;margin-bottom:8px;font-size:18px}.target b{font-size:30px;color:#ffd166;margin-right:6px}
+.feedback{text-align:center;min-height:24px;margin:0 0 8px;font-weight:700;color:#aab4c0}
 .stats{display:flex;gap:10px;justify-content:center;margin-bottom:12px}.stat{background:#222a35;padding:7px 14px;border-radius:12px;text-align:center;min-width:105px}.stat small{display:block;color:#aab4c0}.stat b{font-size:20px}
-.wrap{position:relative}canvas{display:block;width:100%;aspect-ratio:1/1;background:#0b0f14;border-radius:14px;touch-action:none}.overlay{position:absolute;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;border-radius:14px;padding:20px}.overlay.hidden{display:none}.box{background:#171c24;border:1px solid #394454;border-radius:16px;padding:20px;text-align:center;width:min(90%,330px)}.box h2{margin:0 0 8px}.box p{color:#c8d1dc;line-height:1.5}
+.wrap{position:relative}canvas{display:block;width:100%;aspect-ratio:1/1;background:#0b0f14;border-radius:14px;touch-action:none}.overlay{position:absolute;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;border-radius:14px;padding:20px}.overlay.hidden{display:none}.box{background:#171c24;border:1px solid #394454;border-radius:16px;padding:20px;text-align:center;width:min(90%,340px)}.box h2{margin:0 0 8px}.box p{color:#c8d1dc;line-height:1.5}
 button{border:0;border-radius:13px;background:#2b3543;color:#fff;font-size:18px;font-weight:700;min-height:50px;cursor:pointer}button:active{transform:scale(.97)}.primary{background:#7ee787;color:#07120a;padding:0 22px}
 .controls{direction:ltr;width:220px;margin:15px auto 0;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,56px);gap:8px}.up{grid-column:2}.left{grid-column:1;grid-row:2}.down{grid-column:2;grid-row:2}.right{grid-column:3;grid-row:2}.controls button{font-size:26px}.actions{display:flex;justify-content:center;gap:8px;margin-top:12px}.actions button{padding:0 14px}.help{text-align:center;color:#99a6b4;font-size:13px;margin-top:10px;line-height:1.4}
 </style>
@@ -19,8 +20,9 @@ button{border:0;border-radius:13px;background:#2b3543;color:#fff;font-size:18px;
 <div class="app"><div class="card">
 <h1>🐍 נחש האותיות</h1>
 <div class="target">צריך לאסוף עכשיו: <b id="targetLetter">א</b></div>
+<div class="feedback" id="feedback">מצא את האות הנכונה בין 10 האותיות</div>
 <div class="stats"><div class="stat"><small>אותיות שנאספו</small><b id="score">0</b></div><div class="stat"><small>האות האחרונה</small><b id="last">—</b></div></div>
-<div class="wrap"><canvas id="game" width="480" height="480"></canvas><div class="overlay" id="overlay"><div class="box"><h2 id="title">מוכן?</h2><p id="msg">אסוף את אותיות הא״ב לפי הסדר: א, אחר כך ב, אחר כך ג וכן הלאה עד ת.</p><button id="start" class="primary" type="button">התחל משחק</button></div></div></div>
+<div class="wrap"><canvas id="game" width="480" height="480"></canvas><div class="overlay" id="overlay"><div class="box"><h2 id="title">מוכן?</h2><p id="msg">על הלוח יש תמיד 10 אותיות. אסוף לפי הסדר: א, אחר כך ב, אחר כך ג וכן הלאה עד ת.</p><button id="start" class="primary" type="button">התחל משחק</button></div></div></div>
 <div class="controls"><button class="up" data-d="up">▲</button><button class="left" data-d="left">◀</button><button class="down" data-d="down">▼</button><button class="right" data-d="right">▶</button></div>
 <div class="actions"><button id="pause" type="button">השהה</button><button id="restart" type="button">התחל מחדש</button></div>
 <div class="help">בטלפון: החלקה או החצים · במחשב: חצים / WASD</div>
@@ -29,26 +31,37 @@ button{border:0;border-radius:13px;background:#2b3543;color:#fff;font-size:18px;
 (function(){
 "use strict";
 var letters=["א","ב","ג","ד","ה","ו","ז","ח","ט","י","כ","ל","מ","נ","ס","ע","פ","צ","ק","ר","ש","ת"];
-var canvas=document.getElementById("game"),ctx=canvas.getContext("2d"),scoreEl=document.getElementById("score"),lastEl=document.getElementById("last"),targetEl=document.getElementById("targetLetter"),overlay=document.getElementById("overlay"),titleEl=document.getElementById("title"),msgEl=document.getElementById("msg"),startBtn=document.getElementById("start"),pauseBtn=document.getElementById("pause"),restartBtn=document.getElementById("restart");
-var cells=20,size=canvas.width/cells,snake=[],dir={x:1,y:0},nextDir={x:1,y:0},food={x:15,y:10},letterIndex=0,running=false,paused=false,timer=null,collected=[];
+var canvas=document.getElementById("game"),ctx=canvas.getContext("2d"),scoreEl=document.getElementById("score"),lastEl=document.getElementById("last"),targetEl=document.getElementById("targetLetter"),feedbackEl=document.getElementById("feedback"),overlay=document.getElementById("overlay"),titleEl=document.getElementById("title"),msgEl=document.getElementById("msg"),startBtn=document.getElementById("start"),pauseBtn=document.getElementById("pause"),restartBtn=document.getElementById("restart");
+var cells=20,size=canvas.width/cells,snake=[],dir={x:1,y:0},nextDir={x:1,y:0},boardLetters=[],letterIndex=0,running=false,paused=false,timer=null,collected=[];
+var SPEED=250;
 function rr(x,y,w,h,r){ctx.beginPath();if(ctx.roundRect)ctx.roundRect(x,y,w,h,r);else{ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath()}}
-function reset(){clearInterval(timer);snake=[{x:10,y:10},{x:9,y:10},{x:8,y:10}];dir={x:1,y:0};nextDir={x:1,y:0};letterIndex=0;collected=[];running=false;paused=false;scoreEl.textContent="0";lastEl.textContent="—";targetEl.textContent=letters[0];pauseBtn.textContent="השהה";placeFood();draw()}
-function placeFood(){var ok=false;while(!ok){food={x:Math.floor(Math.random()*cells),y:Math.floor(Math.random()*cells)};ok=true;for(var i=0;i<snake.length;i++)if(snake[i].x===food.x&&snake[i].y===food.y){ok=false;break}}}
+function shuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1)),t=a[i];a[i]=a[j];a[j]=t}return a}
+function cellOccupied(x,y,ignoreBoardIndex){for(var i=0;i<snake.length;i++){if(snake[i].x===x&&snake[i].y===y)return true}for(var j=0;j<boardLetters.length;j++){if(j!==ignoreBoardIndex&&boardLetters[j].x===x&&boardLetters[j].y===y)return true}return false}
+function freeCell(ignoreBoardIndex){var p,guard=0;do{p={x:Math.floor(Math.random()*cells),y:Math.floor(Math.random()*cells)};guard++}while(cellOccupied(p.x,p.y,ignoreBoardIndex)&&guard<2000);return p}
+function buildTenLetters(){boardLetters=[];var target=letters[letterIndex],pool=[];for(var i=0;i<letters.length;i++){if(letters[i]!==target)pool.push(letters[i])}shuffle(pool);var chosen=[target].concat(pool.slice(0,9));shuffle(chosen);for(var k=0;k<chosen.length;k++){var p=freeCell(-1);boardLetters.push({x:p.x,y:p.y,letter:chosen[k]})}}
+function resetGame(){clearInterval(timer);snake=[{x:10,y:10},{x:9,y:10},{x:8,y:10}];dir={x:1,y:0};nextDir={x:1,y:0};letterIndex=0;collected=[];running=false;paused=false;scoreEl.textContent="0";lastEl.textContent="—";targetEl.textContent=letters[0];feedbackEl.textContent="מצא את האות הנכונה בין 10 האותיות";feedbackEl.style.color="#aab4c0";pauseBtn.textContent="השהה";buildTenLetters();draw()}
 function draw(){ctx.fillStyle="#0b0f14";ctx.fillRect(0,0,canvas.width,canvas.height);ctx.strokeStyle="#151b23";ctx.lineWidth=1;for(var i=1;i<cells;i++){ctx.beginPath();ctx.moveTo(i*size,0);ctx.lineTo(i*size,canvas.height);ctx.stroke();ctx.beginPath();ctx.moveTo(0,i*size);ctx.lineTo(canvas.width,i*size);ctx.stroke()}
-ctx.fillStyle="#ffd166";rr(food.x*size+2,food.y*size+2,size-4,size-4,7);ctx.fill();ctx.fillStyle="#151515";ctx.font="bold 19px Arial";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(letters[letterIndex],food.x*size+size/2,food.y*size+size/2+1);
+for(var b=0;b<boardLetters.length;b++){var item=boardLetters[b];ctx.fillStyle="#dfe6ee";rr(item.x*size+2,item.y*size+2,size-4,size-4,7);ctx.fill();ctx.fillStyle="#151515";ctx.font="bold 18px Arial";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(item.letter,item.x*size+size/2,item.y*size+size/2+1)}
 for(var j=0;j<snake.length;j++){ctx.fillStyle=j===0?"#9cff9f":"#55c96b";rr(snake[j].x*size+2,snake[j].y*size+2,size-4,size-4,6);ctx.fill();if(j>0&&j-1<collected.length){ctx.fillStyle="#0b3212";ctx.font="bold 15px Arial";ctx.fillText(collected[j-1],snake[j].x*size+size/2,snake[j].y*size+size/2+1)}}}
-function startGame(){clearInterval(timer);running=true;paused=false;overlay.classList.add("hidden");pauseBtn.textContent="השהה";timer=setInterval(tick,115)}
+function startGame(){clearInterval(timer);running=true;paused=false;overlay.classList.add("hidden");pauseBtn.textContent="השהה";timer=setInterval(tick,SPEED)}
 function gameOver(){clearInterval(timer);running=false;titleEl.textContent="נגמר המשחק";msgEl.textContent="אספת "+collected.length+" אותיות. נסה שוב!";startBtn.textContent="שחק שוב";overlay.classList.remove("hidden")}
 function win(){clearInterval(timer);running=false;titleEl.textContent="כל הכבוד! 🎉";msgEl.textContent="אספת את כל אותיות הא״ב מא׳ ועד ת׳!";startBtn.textContent="שחק שוב";overlay.classList.remove("hidden")}
-function tick(){if(!running||paused)return;dir={x:nextDir.x,y:nextDir.y};var head={x:snake[0].x+dir.x,y:snake[0].y+dir.y};if(head.x<0||head.x>=cells||head.y<0||head.y>=cells){gameOver();return}var eat=head.x===food.x&&head.y===food.y,limit=eat?snake.length:snake.length-1;for(var i=0;i<limit;i++)if(snake[i].x===head.x&&snake[i].y===head.y){gameOver();return}snake.unshift(head);if(eat){var got=letters[letterIndex];collected.push(got);scoreEl.textContent=String(collected.length);lastEl.textContent=got;letterIndex++;if(letterIndex>=letters.length){draw();win();return}targetEl.textContent=letters[letterIndex];placeFood()}else snake.pop();draw()}
+function advanceAfterCorrectLetter(got){collected.push(got);scoreEl.textContent=String(collected.length);lastEl.textContent=got;feedbackEl.textContent="מצוין! אספת "+got;feedbackEl.style.color="#7ee787";letterIndex++;if(letterIndex>=letters.length){boardLetters=[];draw();win();return false}targetEl.textContent=letters[letterIndex];buildTenLetters();return true}
+function moveWrongLetter(index){var p=freeCell(index);boardLetters[index].x=p.x;boardLetters[index].y=p.y}
+function tick(){if(!running||paused)return;dir={x:nextDir.x,y:nextDir.y};var head={x:snake[0].x+dir.x,y:snake[0].y+dir.y};if(head.x<0||head.x>=cells||head.y<0||head.y>=cells){gameOver();return}
+var hit=-1;for(var h=0;h<boardLetters.length;h++){if(boardLetters[h].x===head.x&&boardLetters[h].y===head.y){hit=h;break}}
+var expected=letters[letterIndex],correct=hit>=0&&boardLetters[hit].letter===expected;var bodyLimit=correct?snake.length:snake.length-1;for(var i=0;i<bodyLimit;i++){if(snake[i].x===head.x&&snake[i].y===head.y){gameOver();return}}
+snake.unshift(head);
+if(correct){if(!advanceAfterCorrectLetter(expected))return}else{snake.pop();if(hit>=0){feedbackEl.textContent="לא זאת — חפש את האות "+expected;feedbackEl.style.color="#ff9b9b";moveWrongLetter(hit)}}
+draw()}
 function setDir(name){var nd;if(name==="up")nd={x:0,y:-1};else if(name==="down")nd={x:0,y:1};else if(name==="left")nd={x:-1,y:0};else if(name==="right")nd={x:1,y:0};else return;if(nd.x===-dir.x&&nd.y===-dir.y)return;nextDir=nd}
-startBtn.addEventListener("click",function(){if(running&&paused){paused=false;overlay.classList.add("hidden");pauseBtn.textContent="השהה";return}reset();startGame()});
+startBtn.addEventListener("click",function(){if(running&&paused){paused=false;overlay.classList.add("hidden");pauseBtn.textContent="השהה";return}resetGame();startGame()});
 pauseBtn.addEventListener("click",function(){if(!running)return;paused=!paused;if(paused){titleEl.textContent="מושהה";msgEl.textContent="האות הבאה היא "+letters[letterIndex];startBtn.textContent="המשך";overlay.classList.remove("hidden");pauseBtn.textContent="המשך"}else{overlay.classList.add("hidden");pauseBtn.textContent="השהה"}});
-restartBtn.addEventListener("click",function(){reset();titleEl.textContent="מוכן?";msgEl.textContent="אסוף את אותיות הא״ב לפי הסדר: א, אחר כך ב, אחר כך ג וכן הלאה עד ת.";startBtn.textContent="התחל משחק";overlay.classList.remove("hidden")});
-var bs=document.querySelectorAll("[data-d]");for(var i=0;i<bs.length;i++)(function(b){b.addEventListener("click",function(){setDir(b.getAttribute("data-d"))});b.addEventListener("touchstart",function(e){e.preventDefault();setDir(b.getAttribute("data-d"))},{passive:false})})(bs[i]);
+restartBtn.addEventListener("click",function(){resetGame();titleEl.textContent="מוכן?";msgEl.textContent="על הלוח יש תמיד 10 אותיות. אסוף לפי הסדר: א, אחר כך ב, אחר כך ג וכן הלאה עד ת.";startBtn.textContent="התחל משחק";overlay.classList.remove("hidden")});
+var bs=document.querySelectorAll("[data-d]");for(var q=0;q<bs.length;q++){(function(b){b.addEventListener("click",function(){setDir(b.getAttribute("data-d"))});b.addEventListener("touchstart",function(e){e.preventDefault();setDir(b.getAttribute("data-d"))},{passive:false})})(bs[q])}
 document.addEventListener("keydown",function(e){var k=e.key;if(k==="ArrowUp"||k==="w"||k==="W")setDir("up");else if(k==="ArrowDown"||k==="s"||k==="S")setDir("down");else if(k==="ArrowLeft"||k==="a"||k==="A")setDir("left");else if(k==="ArrowRight"||k==="d"||k==="D")setDir("right");else return;e.preventDefault()});
 var sx=0,sy=0;canvas.addEventListener("touchstart",function(e){var t=e.changedTouches[0];sx=t.clientX;sy=t.clientY},{passive:true});canvas.addEventListener("touchend",function(e){var t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(Math.max(Math.abs(dx),Math.abs(dy))<20)return;if(Math.abs(dx)>Math.abs(dy))setDir(dx>0?"right":"left");else setDir(dy>0?"down":"up")},{passive:true});
-reset();
+resetGame();
 })();
 </script>
 </body>
