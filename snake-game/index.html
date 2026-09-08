@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>משחק הנחש</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{
+  margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:#0e1116;color:#fff;font-family:Arial,sans-serif;
+}
+.app{width:min(94vw,560px);padding:14px}
+.card{background:#171c24;border:1px solid #303947;border-radius:20px;padding:14px}
+h1{text-align:center;margin:0 0 12px}
+.stats{display:flex;gap:10px;justify-content:center;margin-bottom:12px}
+.stat{background:#222a35;padding:8px 16px;border-radius:12px;text-align:center;min-width:110px}
+.stat small{display:block;color:#aab4c0}
+.stat b{font-size:20px}
+.wrap{position:relative}
+canvas{display:block;width:100%;aspect-ratio:1/1;background:#0b0f14;border-radius:14px;touch-action:none}
+.overlay{
+  position:absolute;inset:0;background:rgba(0,0,0,.68);display:flex;align-items:center;justify-content:center;
+  border-radius:14px;padding:20px
+}
+.overlay.hidden{display:none}
+.box{background:#171c24;border:1px solid #394454;border-radius:16px;padding:20px;text-align:center;width:min(90%,320px)}
+.box h2{margin:0 0 8px}.box p{color:#c8d1dc;line-height:1.4}
+button{
+  border:0;border-radius:13px;background:#2b3543;color:#fff;font-size:18px;font-weight:700;
+  min-height:50px;cursor:pointer
+}
+button:active{transform:scale(.97)}
+.primary{background:#7ee787;color:#07120a;padding:0 22px}
+.controls{
+  direction:ltr;width:220px;margin:15px auto 0;
+  display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,56px);gap:8px
+}
+.up{grid-column:2}.left{grid-column:1;grid-row:2}.down{grid-column:2;grid-row:2}.right{grid-column:3;grid-row:2}
+.controls button{font-size:26px}
+.actions{display:flex;justify-content:center;gap:8px;margin-top:12px}
+.actions button{padding:0 14px}
+.help{text-align:center;color:#99a6b4;font-size:13px;margin-top:10px;line-height:1.4}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="card">
+    <h1>🐍 משחק הנחש</h1>
+
+    <div class="stats">
+      <div class="stat"><small>ניקוד</small><b id="score">0</b></div>
+      <div class="stat"><small>שיא</small><b id="high">0</b></div>
+    </div>
+
+    <div class="wrap">
+      <canvas id="game" width="480" height="480"></canvas>
+      <div class="overlay" id="overlay">
+        <div class="box">
+          <h2 id="title">מוכן?</h2>
+          <p id="msg">אכול את האוכל ואל תפגע בקירות או בעצמך.</p>
+          <button id="start" class="primary" type="button">התחל משחק</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button class="up" data-d="up">▲</button>
+      <button class="left" data-d="left">◀</button>
+      <button class="down" data-d="down">▼</button>
+      <button class="right" data-d="right">▶</button>
+    </div>
+
+    <div class="actions">
+      <button id="pause" type="button">השהה</button>
+      <button id="restart" type="button">התחל מחדש</button>
+    </div>
+
+    <div class="help">בטלפון: החלקה או החצים · במחשב: מקשי החצים / WASD</div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var canvas = document.getElementById("game");
+  var ctx = canvas.getContext("2d");
+  var scoreEl = document.getElementById("score");
+  var highEl = document.getElementById("high");
+  var overlay = document.getElementById("overlay");
+  var titleEl = document.getElementById("title");
+  var msgEl = document.getElementById("msg");
+  var startBtn = document.getElementById("start");
+  var pauseBtn = document.getElementById("pause");
+  var restartBtn = document.getElementById("restart");
+
+  var cells = 20;
+  var size = canvas.width / cells;
+  var snake = [];
+  var dir = {x:1,y:0};
+  var nextDir = {x:1,y:0};
+  var food = {x:15,y:10};
+  var score = 0;
+  var high = 0;
+  var running = false;
+  var paused = false;
+  var timer = null;
+
+  try {
+    high = parseInt(localStorage.getItem("snakeHighHe") || "0", 10) || 0;
+  } catch(e) {
+    high = 0;
+  }
+  highEl.textContent = String(high);
+
+  function safeRoundRect(x,y,w,h,r){
+    if (ctx.roundRect) {
+      ctx.beginPath();
+      ctx.roundRect(x,y,w,h,r);
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(x+r,y);
+      ctx.lineTo(x+w-r,y);
+      ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+      ctx.lineTo(x+w,y+h-r);
+      ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+      ctx.lineTo(x+r,y+h);
+      ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+      ctx.lineTo(x,y+r);
+      ctx.quadraticCurveTo(x,y,x+r,y);
+      ctx.closePath();
+    }
+  }
+
+  function reset(){
+    clearInterval(timer);
+    snake = [{x:10,y:10},{x:9,y:10},{x:8,y:10}];
+    dir = {x:1,y:0};
+    nextDir = {x:1,y:0};
+    score = 0;
+    running = false;
+    paused = false;
+    scoreEl.textContent = "0";
+    pauseBtn.textContent = "השהה";
+    placeFood();
+    draw();
+  }
+
+  function placeFood(){
+    var ok = false;
+    while(!ok){
+      food = {
+        x: Math.floor(Math.random()*cells),
+        y: Math.floor(Math.random()*cells)
+      };
+      ok = true;
+      for(var i=0;i<snake.length;i++){
+        if(snake[i].x===food.x && snake[i].y===food.y){
+          ok=false; break;
+        }
+      }
+    }
+  }
+
+  function draw(){
+    ctx.fillStyle="#0b0f14";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    ctx.strokeStyle="#151b23";
+    ctx.lineWidth=1;
+    for(var i=1;i<cells;i++){
+      ctx.beginPath();ctx.moveTo(i*size,0);ctx.lineTo(i*size,canvas.height);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(0,i*size);ctx.lineTo(canvas.width,i*size);ctx.stroke();
+    }
+
+    ctx.fillStyle="#ffd166";
+    safeRoundRect(food.x*size+4,food.y*size+4,size-8,size-8,7);
+    ctx.fill();
+
+    for(var j=0;j<snake.length;j++){
+      ctx.fillStyle = j===0 ? "#9cff9f" : "#55c96b";
+      safeRoundRect(snake[j].x*size+2,snake[j].y*size+2,size-4,size-4,6);
+      ctx.fill();
+    }
+  }
+
+  function startGame(){
+    clearInterval(timer);
+    running = true;
+    paused = false;
+    overlay.classList.add("hidden");
+    pauseBtn.textContent = "השהה";
+    timer = setInterval(tick,110);
+  }
+
+  function endGame(){
+    clearInterval(timer);
+    running=false;
+
+    if(score>high){
+      high=score;
+      highEl.textContent=String(high);
+      try { localStorage.setItem("snakeHighHe",String(high)); } catch(e) {}
+    }
+
+    titleEl.textContent="נגמר המשחק";
+    msgEl.textContent="הניקוד שלך: "+score;
+    startBtn.textContent="שחק שוב";
+    overlay.classList.remove("hidden");
+  }
+
+  function tick(){
+    if(!running || paused) return;
+
+    dir = {x:nextDir.x,y:nextDir.y};
+    var head = {x:snake[0].x+dir.x,y:snake[0].y+dir.y};
+
+    if(head.x<0 || head.x>=cells || head.y<0 || head.y>=cells){
+      endGame(); return;
+    }
+
+    var willEat = (head.x===food.x && head.y===food.y);
+    var bodyLimit = willEat ? snake.length : snake.length-1;
+    for(var i=0;i<bodyLimit;i++){
+      if(snake[i].x===head.x && snake[i].y===head.y){
+        endGame(); return;
+      }
+    }
+
+    snake.unshift(head);
+
+    if(willEat){
+      score++;
+      scoreEl.textContent=String(score);
+      placeFood();
+    }else{
+      snake.pop();
+    }
+
+    draw();
+  }
+
+  function setDir(name){
+    var nd;
+    if(name==="up") nd={x:0,y:-1};
+    else if(name==="down") nd={x:0,y:1};
+    else if(name==="left") nd={x:-1,y:0};
+    else if(name==="right") nd={x:1,y:0};
+    else return;
+
+    if(nd.x===-dir.x && nd.y===-dir.y) return;
+    nextDir=nd;
+  }
+
+  startBtn.addEventListener("click",function(){
+    if(running && paused){
+      paused=false;
+      overlay.classList.add("hidden");
+      pauseBtn.textContent="השהה";
+      return;
+    }
+    reset();
+    startGame();
+  });
+
+  pauseBtn.addEventListener("click",function(){
+    if(!running) return;
+    paused=!paused;
+
+    if(paused){
+      titleEl.textContent="מושהה";
+      msgEl.textContent="לחץ על המשך כדי לחזור למשחק.";
+      startBtn.textContent="המשך";
+      overlay.classList.remove("hidden");
+      pauseBtn.textContent="המשך";
+    }else{
+      overlay.classList.add("hidden");
+      pauseBtn.textContent="השהה";
+    }
+  });
+
+  restartBtn.addEventListener("click",function(){
+    reset();
+    titleEl.textContent="מוכן?";
+    msgEl.textContent="אכול את האוכל ואל תפגע בקירות או בעצמך.";
+    startBtn.textContent="התחל משחק";
+    overlay.classList.remove("hidden");
+  });
+
+  var dirButtons=document.querySelectorAll("[data-d]");
+  for(var i=0;i<dirButtons.length;i++){
+    (function(btn){
+      btn.addEventListener("click",function(){
+        setDir(btn.getAttribute("data-d"));
+      });
+      btn.addEventListener("touchstart",function(e){
+        e.preventDefault();
+        setDir(btn.getAttribute("data-d"));
+      },{passive:false});
+    })(dirButtons[i]);
+  }
+
+  document.addEventListener("keydown",function(e){
+    var k=e.key;
+    if(k==="ArrowUp" || k==="w" || k==="W") setDir("up");
+    else if(k==="ArrowDown" || k==="s" || k==="S") setDir("down");
+    else if(k==="ArrowLeft" || k==="a" || k==="A") setDir("left");
+    else if(k==="ArrowRight" || k==="d" || k==="D") setDir("right");
+    else return;
+    e.preventDefault();
+  });
+
+  var sx=0,sy=0;
+  canvas.addEventListener("touchstart",function(e){
+    var t=e.changedTouches[0];
+    sx=t.clientX; sy=t.clientY;
+  },{passive:true});
+
+  canvas.addEventListener("touchend",function(e){
+    var t=e.changedTouches[0];
+    var dx=t.clientX-sx,dy=t.clientY-sy;
+    if(Math.max(Math.abs(dx),Math.abs(dy))<20) return;
+    if(Math.abs(dx)>Math.abs(dy)) setDir(dx>0?"right":"left");
+    else setDir(dy>0?"down":"up");
+  },{passive:true});
+
+  reset();
+})();
+</script>
+</body>
+</html>
